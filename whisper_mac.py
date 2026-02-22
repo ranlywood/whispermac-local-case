@@ -79,8 +79,7 @@ HOTWORDS_PROMPT = "WhisperMac, Whisper Flow, Miro, Zoom, Claude Code, ChatGPT."
 
 W, H   = 228, 52
 RADIUS = H // 2
-MIC_X = 24
-MIC_ICON_SIZE = 34  # ~20% больше относительно 28px
+MIC_X = 22
 
 BG         = "#0D0D0F"
 PILL       = "#1C1C1E"
@@ -89,7 +88,7 @@ C_REC      = "#FF375F"
 C_PROC     = "#FF9F0A"
 C_MIC_BG     = "#2C2C2E"   # круг микрофона в покое
 C_MIC_BG_ON  = "#FF375F"   # круг микрофона при записи
-C_MIC_SYM    = "#8E8E93"   # символ микрофона в покое
+C_MIC_SYM    = "#C8CBD2"   # символ микрофона в покое
 C_MIC_SYM_ON = "#FF375F"   # символ микрофона при записи
 C_CLOSE_BG   = "#2C2C2E"
 C_CLOSE_HV   = "#3A3A3C"
@@ -354,8 +353,8 @@ class App:
             from PIL import Image, ImageTk
             from pathlib import Path
 
-            # По умолчанию используем аккуратную PNG-иконку, canvas — fallback.
-            if not _env_bool("WHISPERMAC_USE_PNG_MIC_ICON", True):
+            # По умолчанию используем канвас-иконку (как на референсе UI).
+            if not _env_bool("WHISPERMAC_USE_PNG_MIC_ICON", False):
                 raise FileNotFoundError("PNG mic icon disabled by default")
 
             env_icon = os.getenv("WHISPERMAC_MIC_ICON")
@@ -374,25 +373,13 @@ class App:
             if icon_path is None:
                 raise FileNotFoundError("No mic icon found")
 
-            img = Image.open(icon_path).convert("RGBA")
+            img  = Image.open(icon_path).convert("RGBA")
+            img  = img.resize((28, 28), Image.LANCZOS)
             data = np.array(img, dtype=np.uint8)
 
-            # Убираем белый фон → прозрачность
+            # Убираем светлый фон → прозрачность
             white = (data[:,:,0] > 200) & (data[:,:,1] > 200) & (data[:,:,2] > 200)
             data[white, 3] = 0
-
-            # Подрезаем прозрачные поля, чтобы иконка центрировалась аккуратно.
-            alpha = data[:, :, 3]
-            coords = np.argwhere(alpha > 10)
-            if coords.size:
-                y0, x0 = coords.min(axis=0)
-                y1, x1 = coords.max(axis=0) + 1
-                data = data[y0:y1, x0:x1]
-
-            img = Image.fromarray(data, "RGBA").resize(
-                (MIC_ICON_SIZE, MIC_ICON_SIZE), Image.LANCZOS
-            )
-            data = np.array(img, dtype=np.uint8)
             mask = data[:,:,3] > 10
 
             # Idle: серый (#8E8E93)
