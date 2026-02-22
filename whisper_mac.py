@@ -79,6 +79,8 @@ HOTWORDS_PROMPT = "WhisperMac, Whisper Flow, Miro, Zoom, Claude Code, ChatGPT."
 
 W, H   = 228, 52
 RADIUS = H // 2
+MIC_X = 24
+MIC_ICON_SIZE = 34  # ~20% больше относительно 28px
 
 BG         = "#0D0D0F"
 PILL       = "#1C1C1E"
@@ -372,14 +374,25 @@ class App:
             if icon_path is None:
                 raise FileNotFoundError("No mic icon found")
 
-            img  = Image.open(icon_path).convert("RGBA")
-            img  = img.resize((28, 28), Image.LANCZOS)
-
+            img = Image.open(icon_path).convert("RGBA")
             data = np.array(img, dtype=np.uint8)
 
             # Убираем белый фон → прозрачность
             white = (data[:,:,0] > 200) & (data[:,:,1] > 200) & (data[:,:,2] > 200)
             data[white, 3] = 0
+
+            # Подрезаем прозрачные поля, чтобы иконка центрировалась аккуратно.
+            alpha = data[:, :, 3]
+            coords = np.argwhere(alpha > 10)
+            if coords.size:
+                y0, x0 = coords.min(axis=0)
+                y1, x1 = coords.max(axis=0) + 1
+                data = data[y0:y1, x0:x1]
+
+            img = Image.fromarray(data, "RGBA").resize(
+                (MIC_ICON_SIZE, MIC_ICON_SIZE), Image.LANCZOS
+            )
+            data = np.array(img, dtype=np.uint8)
             mask = data[:,:,3] > 10
 
             # Idle: серый (#8E8E93)
@@ -445,7 +458,7 @@ class App:
     # ── Рисование иконок ────────────────────────────────────────
     def _draw_mic(self, recording=False):
         """Иконка микрофона — PNG если доступен, иначе canvas-примитивы."""
-        x, cy = 22, H // 2
+        x, cy = MIC_X, H // 2
 
         if self._mic_photo_idle and self._mic_photo_active:
             photo = self._mic_photo_active if recording else self._mic_photo_idle
