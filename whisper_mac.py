@@ -352,18 +352,25 @@ class App:
             from PIL import Image, ImageTk
             from pathlib import Path
 
-            # По умолчанию используем canvas-иконку (как в стабильной версии UI).
-            # PNG-иконка подключается только вручную через env.
-            if not _env_bool("WHISPERMAC_USE_PNG_MIC_ICON", False):
+            # По умолчанию используем аккуратную PNG-иконку, canvas — fallback.
+            if not _env_bool("WHISPERMAC_USE_PNG_MIC_ICON", True):
                 raise FileNotFoundError("PNG mic icon disabled by default")
 
             env_icon = os.getenv("WHISPERMAC_MIC_ICON")
-            if not env_icon:
-                raise FileNotFoundError("WHISPERMAC_MIC_ICON not set")
+            candidates = [
+                Path(env_icon).expanduser() if env_icon else None,
+                Path(__file__).resolve().parent / "assets" / "mic.png",
+                Path.home() / "Downloads" / "микро.png",
+                Path.home() / "Downloads" / "micro.png",
+            ]
+            icon_path = None
+            for path in candidates:
+                if path and path.exists():
+                    icon_path = path
+                    break
 
-            icon_path = Path(env_icon).expanduser()
-            if not icon_path.exists():
-                raise FileNotFoundError(f"mic icon not found: {icon_path}")
+            if icon_path is None:
+                raise FileNotFoundError("No mic icon found")
 
             img  = Image.open(icon_path).convert("RGBA")
             img  = img.resize((28, 28), Image.LANCZOS)

@@ -107,7 +107,8 @@ python whisper_mac.py
 - `WHISPERMAC_TK_FORMULA` - Homebrew Tk formula для `setup.sh` (по умолчанию `python-tk@3.12`).
 - `WHISPERMAC_STRICT_LOCAL=1` - только локальный режим после кэша.
 - `WHISPERMAC_DOCK_MODE=regular|accessory` - отображение в Dock.
-- `WHISPERMAC_MIC_ICON=/path/to/mic.png` - кастомная PNG-иконка микрофона (по умолчанию используется встроенный canvas-стиль).
+- `WHISPERMAC_USE_PNG_MIC_ICON=1|0` - включить/выключить PNG-иконку микрофона (по умолчанию `1`).
+- `WHISPERMAC_MIC_ICON=/path/to/mic.png` - кастомная PNG-иконка микрофона.
 - `WHISPERMAC_SAVE_TRANSCRIPTS=0` - не писать `~/whisper_log.txt`.
 - `WHISPERMAC_SAVE_PERF_LOG=0` - не писать `~/whisper_perf.log`.
 
