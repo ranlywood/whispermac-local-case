@@ -35,15 +35,22 @@
 
 ```bash
 git clone <your-repo-url>
-cd whisper-mac
+cd whispermac-local-case
 ./setup.sh
-source venv/bin/activate
-python whisper_mac.py
+open ./dist/WhisperMac.app
 ```
 
-Выдай разрешения в macOS:
-- `Privacy & Security -> Microphone`
-- `Privacy & Security -> Accessibility`
+`setup.sh` делает всё необходимое:
+- проверяет Homebrew Python + Tk (>= 8.6);
+- пересоздаёт `venv` на Homebrew Python;
+- ставит зависимости;
+- предзагружает модель;
+- собирает `dist/WhisperMac.app`.
+
+Разрешения в macOS (важно: именно для `WhisperMac.app`):
+- `System Settings -> Privacy & Security -> Microphone -> WhisperMac ✅`
+- `System Settings -> Privacy & Security -> Accessibility -> WhisperMac ✅`
+- если выданы после запуска: перезапусти `WhisperMac.app`
 
 ## Платформы
 
@@ -58,7 +65,7 @@ python whisper_mac.py
 ```
 
 Скрипт запускает приложение с:
-- `WHISPERMAC_STRICT_LOCAL=0` (safe default для первого запуска)
+- `WHISPERMAC_STRICT_LOCAL=auto` (включается только если модель уже в кэше)
 - `WHISPERMAC_SAVE_TRANSCRIPTS=0`
 - `WHISPERMAC_SAVE_PERF_LOG=1`
 
@@ -77,6 +84,12 @@ open ./dist/WhisperMac.app
 
 Если запускать через `.app`, в Dock будет имя и иконка WhisperMac (не Python).
 
+## Запуск без .app (dev mode)
+
+```bash
+./scripts/launch_secure.sh
+```
+
 ## Тюнинг
 
 ```bash
@@ -90,6 +103,8 @@ python whisper_mac.py
 Полезные env:
 - `WHISPERMAC_MODEL_REPO` - HF repo или локальный путь к модели.
 - `WHISPERMAC_LANGUAGE` - язык (по умолчанию `ru`).
+- `WHISPERMAC_PY_FORMULA` - Homebrew Python formula для `setup.sh` (по умолчанию `python@3.12`).
+- `WHISPERMAC_TK_FORMULA` - Homebrew Tk formula для `setup.sh` (по умолчанию `python-tk@3.12`).
 - `WHISPERMAC_STRICT_LOCAL=1` - только локальный режим после кэша.
 - `WHISPERMAC_DOCK_MODE=regular|accessory` - отображение в Dock.
 - `WHISPERMAC_SAVE_TRANSCRIPTS=0` - не писать `~/whisper_log.txt`.

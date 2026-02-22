@@ -349,16 +349,19 @@ class App:
             from pathlib import Path
 
             env_icon = os.getenv("WHISPERMAC_MIC_ICON")
-            icon_path = (
-                Path(env_icon).expanduser()
-                if env_icon else Path.home() / "Downloads" / "микро.png"
-            )
-            if not icon_path.exists():
-                alt = Path.home() / "Downloads" / "micro.png"
-                if alt.exists():
-                    icon_path = alt
-                else:
-                    raise FileNotFoundError("No dedicated mic icon found")
+            candidates = [
+                Path(env_icon).expanduser() if env_icon else None,
+                Path.home() / "Downloads" / "микро.png",
+                Path.home() / "Downloads" / "micro.png",
+                Path(__file__).resolve().parent / "icon.png",
+            ]
+            icon_path = None
+            for path in candidates:
+                if path and path.exists():
+                    icon_path = path
+                    break
+            if icon_path is None:
+                raise FileNotFoundError("No mic icon found")
 
             img  = Image.open(icon_path).convert("RGBA")
             img  = img.resize((28, 28), Image.LANCZOS)

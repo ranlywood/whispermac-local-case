@@ -63,17 +63,23 @@ set -euo pipefail
 BUNDLE_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 PROJECT_DIR="$(cd "$BUNDLE_DIR/../.." && pwd)"
 PY_BIN="$PROJECT_DIR/venv/bin/python"
-APP_ICON="$BUNDLE_DIR/Contents/Resources/AppIcon.icns"
+LAUNCH_SCRIPT="$PROJECT_DIR/scripts/launch_secure.sh"
 
 if [[ ! -x "$PY_BIN" ]]; then
   osascript -e 'display alert "WhisperMac setup required" message "Run ./setup.sh in the project directory first." as critical'
   exit 1
 fi
 
+if [[ ! -x "$LAUNCH_SCRIPT" ]]; then
+  osascript -e 'display alert "WhisperMac setup required" message "launch_secure.sh not found or not executable." as critical'
+  exit 1
+fi
+
 export HF_HUB_DISABLE_TELEMETRY=1
 export WHISPERMAC_DOCK_MODE="${WHISPERMAC_DOCK_MODE:-regular}"
+export WHISPERMAC_SAVE_TRANSCRIPTS="${WHISPERMAC_SAVE_TRANSCRIPTS:-0}"
 
-exec "$PY_BIN" "$PROJECT_DIR/whisper_mac.py"
+exec "$LAUNCH_SCRIPT"
 LAUNCHER
 
 chmod +x "$APP_DIR/Contents/MacOS/WhisperMac"
@@ -83,3 +89,8 @@ echo "  $APP_DIR"
 echo
 echo "Run:"
 echo "  open \"$APP_DIR\""
+echo
+echo "Permissions (required for paste/hotkeys):"
+echo "  1) System Settings -> Privacy & Security -> Microphone -> WhisperMac ✅"
+echo "  2) System Settings -> Privacy & Security -> Accessibility -> WhisperMac ✅"
+echo "  3) If granted after launch: quit and reopen WhisperMac.app"

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODEL_REPO="${WHISPERMAC_MODEL_REPO:-mlx-community/whisper-large-v3-mlx-4bit}"
+STRICT_LOCAL_RAW="${WHISPERMAC_STRICT_LOCAL:-auto}"
 
 if [[ ! -d "$ROOT_DIR/venv" ]]; then
   echo "venv not found. Run ./setup.sh first."
@@ -10,10 +12,47 @@ fi
 
 source "$ROOT_DIR/venv/bin/activate"
 
+is_model_cached() {
+  python - <<'PY'
+import os
+import sys
+from huggingface_hub import snapshot_download
+
+repo = os.getenv("MODEL_REPO")
+try:
+    snapshot_download(repo_id=repo, local_files_only=True)
+    print("1")
+except Exception:
+    print("0")
+PY
+}
+
+CACHED="0"
+if [[ "$STRICT_LOCAL_RAW" == "auto" || "$STRICT_LOCAL_RAW" == "1" ]]; then
+  CACHED="$(MODEL_REPO="$MODEL_REPO" is_model_cached)"
+fi
+
+if [[ "$STRICT_LOCAL_RAW" == "auto" ]]; then
+  if [[ "$CACHED" == "1" ]]; then
+    STRICT_LOCAL_FINAL="1"
+  else
+    STRICT_LOCAL_FINAL="0"
+  fi
+elif [[ "$STRICT_LOCAL_RAW" == "1" ]]; then
+  if [[ "$CACHED" == "1" ]]; then
+    STRICT_LOCAL_FINAL="1"
+  else
+    echo "Warning: strict local requested, but model cache is missing. Falling back to online mode for first run."
+    STRICT_LOCAL_FINAL="0"
+  fi
+else
+  STRICT_LOCAL_FINAL="0"
+fi
+
+echo "WhisperMac launch: strict_local=$STRICT_LOCAL_FINAL (requested=$STRICT_LOCAL_RAW)"
+
 export HF_HUB_DISABLE_TELEMETRY=1
-# Для первого запуска (когда модель еще не скачана) strict-local по умолчанию выключен.
-# Включай явно: WHISPERMAC_STRICT_LOCAL=1 ./scripts/launch_secure.sh
-export WHISPERMAC_STRICT_LOCAL="${WHISPERMAC_STRICT_LOCAL:-0}"
+export WHISPERMAC_STRICT_LOCAL="$STRICT_LOCAL_FINAL"
 export WHISPERMAC_SAVE_TRANSCRIPTS="${WHISPERMAC_SAVE_TRANSCRIPTS:-0}"
 export WHISPERMAC_SAVE_PERF_LOG="${WHISPERMAC_SAVE_PERF_LOG:-1}"
 export WHISPERMAC_DOCK_MODE="${WHISPERMAC_DOCK_MODE:-regular}"
