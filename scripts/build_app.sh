@@ -72,7 +72,6 @@ fi
 
 export HF_HUB_DISABLE_TELEMETRY=1
 export WHISPERMAC_DOCK_MODE="${WHISPERMAC_DOCK_MODE:-regular}"
-export WHISPERMAC_APP_ICON="$APP_ICON"
 
 exec "$PY_BIN" "$PROJECT_DIR/whisper_mac.py"
 LAUNCHER
@@ -84,4 +83,3 @@ echo "  $APP_DIR"
 echo
 echo "Run:"
 echo "  open \"$APP_DIR\""
-

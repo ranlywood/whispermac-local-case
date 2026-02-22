@@ -92,7 +92,6 @@ python whisper_mac.py
 - `WHISPERMAC_LANGUAGE` - язык (по умолчанию `ru`).
 - `WHISPERMAC_STRICT_LOCAL=1` - только локальный режим после кэша.
 - `WHISPERMAC_DOCK_MODE=regular|accessory` - отображение в Dock.
-- `WHISPERMAC_APP_ICON=/path/to/AppIcon.icns` - кастомная иконка в Dock.
 - `WHISPERMAC_SAVE_TRANSCRIPTS=0` - не писать `~/whisper_log.txt`.
 - `WHISPERMAC_SAVE_PERF_LOG=0` - не писать `~/whisper_perf.log`.
 

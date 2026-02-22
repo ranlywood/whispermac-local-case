@@ -349,19 +349,16 @@ class App:
             from pathlib import Path
 
             env_icon = os.getenv("WHISPERMAC_MIC_ICON")
-            candidates = [
-                Path(env_icon).expanduser() if env_icon else None,
-                Path(__file__).resolve().parent / "icon.png",
-                Path.home() / "Downloads" / "micro.png",
-                Path.home() / "Downloads" / "микро.png",
-            ]
-            icon_path = None
-            for path in candidates:
-                if path and path.exists():
-                    icon_path = path
-                    break
-            if icon_path is None:
-                raise FileNotFoundError("No mic icon found")
+            icon_path = (
+                Path(env_icon).expanduser()
+                if env_icon else Path.home() / "Downloads" / "микро.png"
+            )
+            if not icon_path.exists():
+                alt = Path.home() / "Downloads" / "micro.png"
+                if alt.exists():
+                    icon_path = alt
+                else:
+                    raise FileNotFoundError("No dedicated mic icon found")
 
             img  = Image.open(icon_path).convert("RGBA")
             img  = img.resize((28, 28), Image.LANCZOS)
@@ -899,8 +896,6 @@ class App:
             NSApplication,
             NSApplicationActivationPolicyAccessory,
             NSApplicationActivationPolicyRegular,
-            NSBundle,
-            NSImage,
         )
 
         dock_mode = os.getenv("WHISPERMAC_DOCK_MODE", "regular").strip().lower()
@@ -911,20 +906,6 @@ class App:
         else:
             app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
             log("Dock mode: regular")
-
-            icon_path = os.getenv("WHISPERMAC_APP_ICON", "").strip()
-            if not icon_path:
-                bundle = NSBundle.mainBundle()
-                if bundle:
-                    bundle_icon = bundle.pathForResource_ofType_("AppIcon", "icns")
-                    if bundle_icon:
-                        icon_path = str(bundle_icon)
-
-            if icon_path and os.path.exists(icon_path):
-                img = NSImage.alloc().initWithContentsOfFile_(icon_path)
-                if img:
-                    app.setApplicationIconImage_(img)
-                    log(f"Dock icon: {icon_path}")
 
         self.root.mainloop()
 
