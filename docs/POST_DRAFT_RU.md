@@ -24,3 +24,4 @@
 
 Если нужно, выложу в open-source с инструкцией “установил и поехали” для macOS.
 
+Автор материала: [t.me/ei_ai_channel](https://t.me/ei_ai_channel)

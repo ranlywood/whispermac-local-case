@@ -2,6 +2,8 @@
 
 Локальный voice-to-text для macOS на `mlx-whisper` без облачных API и без API-ключей.
 
+Автор материала: [t.me/ei_ai_channel](https://t.me/ei_ai_channel)
+
 ## Что это
 
 `WhisperMac` записывает голос с микрофона, транскрибирует локально и вставляет текст в активное приложение через `Cmd+V`.
@@ -42,6 +44,12 @@ python whisper_mac.py
 Выдай разрешения в macOS:
 - `Privacy & Security -> Microphone`
 - `Privacy & Security -> Accessibility`
+
+## Платформы
+
+- macOS: поддерживается.
+- Windows: сейчас не поддерживается, так как приложение использует macOS-специфичные `Quartz` и `AppKit`.
+- Linux: не поддерживается в текущей реализации UI и горячих клавиш.
 
 ## Безопасный запуск (рекомендуется)
 
@@ -88,4 +96,3 @@ python whisper_mac.py
 
 - Кейс: [`docs/CASE_STUDY_RU.md`](docs/CASE_STUDY_RU.md)
 - Драфт поста: [`docs/POST_DRAFT_RU.md`](docs/POST_DRAFT_RU.md)
-
