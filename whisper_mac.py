@@ -354,6 +354,9 @@ class App:
 
             # По умолчанию используем canvas-иконку (как в стабильной версии UI).
             # PNG-иконка подключается только вручную через env.
+            if not _env_bool("WHISPERMAC_USE_PNG_MIC_ICON", False):
+                raise FileNotFoundError("PNG mic icon disabled by default")
+
             env_icon = os.getenv("WHISPERMAC_MIC_ICON")
             if not env_icon:
                 raise FileNotFoundError("WHISPERMAC_MIC_ICON not set")
