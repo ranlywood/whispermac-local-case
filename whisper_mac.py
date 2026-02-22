@@ -21,7 +21,6 @@ from Quartz import (
     kCGEventFlagMaskCommand,
     kCGHIDEventTap,
 )
-from ApplicationServices import AXIsProcessTrusted
 from AppKit import NSWorkspace
 
 
@@ -405,42 +404,6 @@ class App:
             )
         except Exception as ex:
             log(f"Не удалось открыть настройки Privacy_{key}: {ex}")
-
-    def _has_accessibility_permission(self) -> bool:
-        try:
-            return bool(AXIsProcessTrusted())
-        except Exception:
-            return False
-
-    def _preflight_permissions(self):
-        # 1) Accessibility проверяем сразу, до первой вставки.
-        if not self._has_accessibility_permission():
-            log("Нет разрешения 'Универсальный доступ' для WhisperMac.")
-            self._open_privacy_panel("Accessibility")
-
-        # 2) Микрофон: короткая проба, чтобы запросить разрешение до записи.
-        test_stream = None
-        try:
-            test_stream = sd.InputStream(
-                samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                blocksize=256, latency="low"
-            )
-            test_stream.start()
-            time.sleep(0.05)
-        except Exception as ex:
-            err = str(ex).lower()
-            if any(k in err for k in ("permission", "not permitted", "unauthorized", "access")):
-                log("Нет разрешения 'Микрофон' для WhisperMac.")
-                self._open_privacy_panel("Microphone")
-            else:
-                log(f"Проверка микрофона: {ex}")
-        finally:
-            if test_stream is not None:
-                try:
-                    test_stream.stop()
-                    test_stream.close()
-                except Exception:
-                    pass
 
     # ── Рисование иконок ────────────────────────────────────────
     def _draw_mic(self, recording=False):
@@ -863,11 +826,6 @@ class App:
             f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {text}\n")
 
     def _paste_and_reset(self, text):
-        if not self._has_accessibility_permission():
-            log("Вставка невозможна: нет разрешения 'Универсальный доступ'.")
-            self._open_privacy_panel("Accessibility")
-            self._reset()
-            return
         subprocess.run(["pbcopy"], input=text, text=True)
         time.sleep(0.05)   # буфер обмена должен осесть
         log(f"Cmd+V → {frontmost_bundle()}")
@@ -935,7 +893,6 @@ class App:
         self.root.after(300, self._track_app)
 
     def _load_model(self):
-        self._preflight_permissions()
         log("Загружаю модель...")
         log(f"Model: {MODEL_REPO}")
         if STRICT_LOCAL_MODE:
