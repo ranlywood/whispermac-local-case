@@ -15,9 +15,13 @@ import mlx_whisper
 import tkinter as tk
 
 from Quartz import (
-    CGEventCreateKeyboardEvent, CGEventPost, CGEventSetFlags,
-    kCGHIDEventTap, kCGEventFlagMaskCommand,
+    CGEventCreateKeyboardEvent,
+    CGEventPost,
+    CGEventSetFlags,
+    kCGEventFlagMaskCommand,
+    kCGHIDEventTap,
 )
+from ApplicationServices import AXIsProcessTrusted
 from AppKit import NSWorkspace
 
 
@@ -348,20 +352,15 @@ class App:
             from PIL import Image, ImageTk
             from pathlib import Path
 
+            # По умолчанию используем canvas-иконку (как в стабильной версии UI).
+            # PNG-иконка подключается только вручную через env.
             env_icon = os.getenv("WHISPERMAC_MIC_ICON")
-            candidates = [
-                Path(env_icon).expanduser() if env_icon else None,
-                Path.home() / "Downloads" / "микро.png",
-                Path.home() / "Downloads" / "micro.png",
-                Path(__file__).resolve().parent / "icon.png",
-            ]
-            icon_path = None
-            for path in candidates:
-                if path and path.exists():
-                    icon_path = path
-                    break
-            if icon_path is None:
-                raise FileNotFoundError("No mic icon found")
+            if not env_icon:
+                raise FileNotFoundError("WHISPERMAC_MIC_ICON not set")
+
+            icon_path = Path(env_icon).expanduser()
+            if not icon_path.exists():
+                raise FileNotFoundError(f"mic icon not found: {icon_path}")
 
             img  = Image.open(icon_path).convert("RGBA")
             img  = img.resize((28, 28), Image.LANCZOS)
@@ -387,6 +386,51 @@ class App:
             log(f"Иконка микрофона загружена: {icon_path}")
         except Exception as ex:
             log(f"PNG-иконка недоступна, используем canvas: {ex}")
+
+    def _open_privacy_panel(self, key: str):
+        try:
+            subprocess.run(
+                ["open", f"x-apple.systempreferences:com.apple.preference.security?Privacy_{key}"],
+                check=False,
+            )
+        except Exception as ex:
+            log(f"Не удалось открыть настройки Privacy_{key}: {ex}")
+
+    def _has_accessibility_permission(self) -> bool:
+        try:
+            return bool(AXIsProcessTrusted())
+        except Exception:
+            return False
+
+    def _preflight_permissions(self):
+        # 1) Accessibility проверяем сразу, до первой вставки.
+        if not self._has_accessibility_permission():
+            log("Нет разрешения 'Универсальный доступ' для WhisperMac.")
+            self._open_privacy_panel("Accessibility")
+
+        # 2) Микрофон: короткая проба, чтобы запросить разрешение до записи.
+        test_stream = None
+        try:
+            test_stream = sd.InputStream(
+                samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                blocksize=256, latency="low"
+            )
+            test_stream.start()
+            time.sleep(0.05)
+        except Exception as ex:
+            err = str(ex).lower()
+            if any(k in err for k in ("permission", "not permitted", "unauthorized", "access")):
+                log("Нет разрешения 'Микрофон' для WhisperMac.")
+                self._open_privacy_panel("Microphone")
+            else:
+                log(f"Проверка микрофона: {ex}")
+        finally:
+            if test_stream is not None:
+                try:
+                    test_stream.stop()
+                    test_stream.close()
+                except Exception:
+                    pass
 
     # ── Рисование иконок ────────────────────────────────────────
     def _draw_mic(self, recording=False):
@@ -526,6 +570,9 @@ class App:
             self.stream.start()
         except Exception as ex:
             log(f"Ошибка: {ex}")
+            err = str(ex).lower()
+            if any(k in err for k in ("permission", "not permitted", "unauthorized", "access")):
+                self._open_privacy_panel("Microphone")
             self._reset()
             return
         threading.Thread(target=self._streaming_worker, daemon=True).start()
@@ -812,6 +859,11 @@ class App:
             f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {text}\n")
 
     def _paste_and_reset(self, text):
+        if not self._has_accessibility_permission():
+            log("Вставка невозможна: нет разрешения 'Универсальный доступ'.")
+            self._open_privacy_panel("Accessibility")
+            self._reset()
+            return
         subprocess.run(["pbcopy"], input=text, text=True)
         time.sleep(0.05)   # буфер обмена должен осесть
         log(f"Cmd+V → {frontmost_bundle()}")
@@ -879,6 +931,7 @@ class App:
         self.root.after(300, self._track_app)
 
     def _load_model(self):
+        self._preflight_permissions()
         log("Загружаю модель...")
         log(f"Model: {MODEL_REPO}")
         if STRICT_LOCAL_MODE:

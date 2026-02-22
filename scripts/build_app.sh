@@ -13,12 +13,12 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
 if [[ ! -d "$ICONSET_DIR" ]]; then
-  echo "Icon set not found: $ICONSET_DIR"
+  echo "Не найден набор иконок: $ICONSET_DIR"
   exit 1
 fi
 
 if ! command -v iconutil >/dev/null 2>&1; then
-  echo "iconutil not found (Xcode Command Line Tools are required)."
+  echo "Не найден iconutil (нужны Xcode Command Line Tools)."
   exit 1
 fi
 
@@ -66,12 +66,12 @@ PY_BIN="$PROJECT_DIR/venv/bin/python"
 LAUNCH_SCRIPT="$PROJECT_DIR/scripts/launch_secure.sh"
 
 if [[ ! -x "$PY_BIN" ]]; then
-  osascript -e 'display alert "WhisperMac setup required" message "Run ./setup.sh in the project directory first." as critical'
+  osascript -e 'display alert "WhisperMac: нужна установка" message "Сначала запусти ./setup.sh в директории проекта." as critical'
   exit 1
 fi
 
 if [[ ! -x "$LAUNCH_SCRIPT" ]]; then
-  osascript -e 'display alert "WhisperMac setup required" message "launch_secure.sh not found or not executable." as critical'
+  osascript -e 'display alert "WhisperMac: ошибка запуска" message "Не найден scripts/launch_secure.sh или он не исполняемый." as critical'
   exit 1
 fi
 
@@ -84,13 +84,13 @@ LAUNCHER
 
 chmod +x "$APP_DIR/Contents/MacOS/WhisperMac"
 
-echo "Built app bundle:"
+echo "Собран app bundle:"
 echo "  $APP_DIR"
 echo
-echo "Run:"
+echo "Запуск:"
 echo "  open \"$APP_DIR\""
 echo
-echo "Permissions (required for paste/hotkeys):"
-echo "  1) System Settings -> Privacy & Security -> Microphone -> WhisperMac ✅"
-echo "  2) System Settings -> Privacy & Security -> Accessibility -> WhisperMac ✅"
-echo "  3) If granted after launch: quit and reopen WhisperMac.app"
+echo "Разрешения (обязательны для вставки/горячих клавиш):"
+echo "  1) Системные настройки -> Конфиденциальность и безопасность -> Микрофон -> WhisperMac ✅"
+echo "  2) Системные настройки -> Конфиденциальность и безопасность -> Универсальный доступ -> WhisperMac ✅"
+echo "  3) Если выданы после запуска: закрой и открой WhisperMac.app заново"

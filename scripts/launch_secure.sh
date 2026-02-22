@@ -6,7 +6,7 @@ MODEL_REPO="${WHISPERMAC_MODEL_REPO:-mlx-community/whisper-large-v3-mlx-4bit}"
 STRICT_LOCAL_RAW="${WHISPERMAC_STRICT_LOCAL:-auto}"
 
 if [[ ! -d "$ROOT_DIR/venv" ]]; then
-  echo "venv not found. Run ./setup.sh first."
+  echo "Не найден venv. Сначала запусти ./setup.sh"
   exit 1
 fi
 
@@ -42,14 +42,14 @@ elif [[ "$STRICT_LOCAL_RAW" == "1" ]]; then
   if [[ "$CACHED" == "1" ]]; then
     STRICT_LOCAL_FINAL="1"
   else
-    echo "Warning: strict local requested, but model cache is missing. Falling back to online mode for first run."
+    echo "Предупреждение: запрошен strict local, но кэш модели не найден. Для первого запуска включаю online-режим."
     STRICT_LOCAL_FINAL="0"
   fi
 else
   STRICT_LOCAL_FINAL="0"
 fi
 
-echo "WhisperMac launch: strict_local=$STRICT_LOCAL_FINAL (requested=$STRICT_LOCAL_RAW)"
+echo "WhisperMac: strict_local=$STRICT_LOCAL_FINAL (запрошено: $STRICT_LOCAL_RAW)"
 
 export HF_HUB_DISABLE_TELEMETRY=1
 export WHISPERMAC_STRICT_LOCAL="$STRICT_LOCAL_FINAL"
