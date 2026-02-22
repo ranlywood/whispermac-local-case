@@ -88,7 +88,7 @@ C_REC      = "#FF375F"
 C_PROC     = "#FF9F0A"
 C_MIC_BG     = "#2C2C2E"   # круг микрофона в покое
 C_MIC_BG_ON  = "#FF375F"   # круг микрофона при записи
-C_MIC_SYM    = "#C8CBD2"   # символ микрофона в покое
+C_MIC_SYM    = "#D7DBE2"   # символ микрофона в покое
 C_MIC_SYM_ON = "#FF375F"   # символ микрофона при записи
 C_CLOSE_BG   = "#2C2C2E"
 C_CLOSE_HV   = "#3A3A3C"
@@ -354,15 +354,15 @@ class App:
             from pathlib import Path
 
             # По умолчанию используем канвас-иконку (как на референсе UI).
-            if not _env_bool("WHISPERMAC_USE_PNG_MIC_ICON", False):
+            if not _env_bool("WHISPERMAC_USE_PNG_MIC_ICON", True):
                 raise FileNotFoundError("PNG mic icon disabled by default")
 
             env_icon = os.getenv("WHISPERMAC_MIC_ICON")
             candidates = [
                 Path(env_icon).expanduser() if env_icon else None,
-                Path(__file__).resolve().parent / "assets" / "mic.png",
                 Path.home() / "Downloads" / "микро.png",
                 Path.home() / "Downloads" / "micro.png",
+                Path(__file__).resolve().parent / "assets" / "mic.png",
             ]
             icon_path = None
             for path in candidates:
@@ -384,9 +384,9 @@ class App:
 
             # Idle: серый (#8E8E93)
             d_idle = data.copy()
-            d_idle[mask, 0] = 0x8E
-            d_idle[mask, 1] = 0x8E
-            d_idle[mask, 2] = 0x93
+            d_idle[mask, 0] = 0xD7
+            d_idle[mask, 1] = 0xDB
+            d_idle[mask, 2] = 0xE2
 
             # Active: оригинальный розовый
             d_active = data.copy()
