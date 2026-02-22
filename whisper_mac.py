@@ -895,11 +895,37 @@ class App:
 
     def run(self):
         log("WhisperMac запущен")
-        # Скрываем из Dock и App Switcher — живём как фоновый виджет
-        from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
-        NSApplication.sharedApplication().setActivationPolicy_(
-            NSApplicationActivationPolicyAccessory
+        from AppKit import (
+            NSApplication,
+            NSApplicationActivationPolicyAccessory,
+            NSApplicationActivationPolicyRegular,
+            NSBundle,
+            NSImage,
         )
+
+        dock_mode = os.getenv("WHISPERMAC_DOCK_MODE", "regular").strip().lower()
+        app = NSApplication.sharedApplication()
+        if dock_mode == "accessory":
+            app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+            log("Dock mode: accessory")
+        else:
+            app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+            log("Dock mode: regular")
+
+            icon_path = os.getenv("WHISPERMAC_APP_ICON", "").strip()
+            if not icon_path:
+                bundle = NSBundle.mainBundle()
+                if bundle:
+                    bundle_icon = bundle.pathForResource_ofType_("AppIcon", "icns")
+                    if bundle_icon:
+                        icon_path = str(bundle_icon)
+
+            if icon_path and os.path.exists(icon_path):
+                img = NSImage.alloc().initWithContentsOfFile_(icon_path)
+                if img:
+                    app.setApplicationIconImage_(img)
+                    log(f"Dock icon: {icon_path}")
+
         self.root.mainloop()
 
 

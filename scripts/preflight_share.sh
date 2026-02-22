@@ -11,6 +11,7 @@ EXCLUDES=(
   --glob '!.git/**'
   --glob '!venv/**'
   --glob '!__pycache__/**'
+  --glob '!dist/**'
   --glob '!scripts/preflight_share.sh'
   --glob '!*.png'
   --glob '!*.icns'
@@ -37,7 +38,7 @@ echo "OK: no personal absolute paths in tracked text files."
 
 echo
 echo "[3/3] Checking large files (>10MB) outside ignored dirs..."
-LARGE_FILES="$(find . -type f ! -path './.git/*' ! -path './venv/*' ! -path './__pycache__/*' -size +10M)"
+LARGE_FILES="$(find . -type f ! -path './.git/*' ! -path './venv/*' ! -path './__pycache__/*' ! -path './dist/*' -size +10M)"
 if [[ -n "$LARGE_FILES" ]]; then
   echo "$LARGE_FILES"
   echo

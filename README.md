@@ -58,9 +58,24 @@ python whisper_mac.py
 ```
 
 Скрипт запускает приложение с:
-- `WHISPERMAC_STRICT_LOCAL=1`
+- `WHISPERMAC_STRICT_LOCAL=0` (safe default для первого запуска)
 - `WHISPERMAC_SAVE_TRANSCRIPTS=0`
 - `WHISPERMAC_SAVE_PERF_LOG=1`
+
+После того как модель уже скачана, можно включить full offline:
+
+```bash
+WHISPERMAC_STRICT_LOCAL=1 ./scripts/launch_secure.sh
+```
+
+## Сборка .app bundle (иконка в Dock)
+
+```bash
+./scripts/build_app.sh
+open ./dist/WhisperMac.app
+```
+
+Если запускать через `.app`, в Dock будет имя и иконка WhisperMac (не Python).
 
 ## Тюнинг
 
@@ -76,6 +91,8 @@ python whisper_mac.py
 - `WHISPERMAC_MODEL_REPO` - HF repo или локальный путь к модели.
 - `WHISPERMAC_LANGUAGE` - язык (по умолчанию `ru`).
 - `WHISPERMAC_STRICT_LOCAL=1` - только локальный режим после кэша.
+- `WHISPERMAC_DOCK_MODE=regular|accessory` - отображение в Dock.
+- `WHISPERMAC_APP_ICON=/path/to/AppIcon.icns` - кастомная иконка в Dock.
 - `WHISPERMAC_SAVE_TRANSCRIPTS=0` - не писать `~/whisper_log.txt`.
 - `WHISPERMAC_SAVE_PERF_LOG=0` - не писать `~/whisper_perf.log`.
 
