@@ -88,7 +88,7 @@ C_PROC     = "#FF9F0A"
 C_MIC_BG     = "#2C2C2E"   # круг микрофона в покое
 C_MIC_BG_ON  = "#FF375F"   # круг микрофона при записи
 C_MIC_SYM    = "#8E8E93"   # символ микрофона в покое
-C_MIC_SYM_ON = "#FFFFFF"   # символ микрофона при записи
+C_MIC_SYM_ON = "#FF375F"   # символ микрофона при записи
 C_CLOSE_BG   = "#2C2C2E"
 C_CLOSE_HV   = "#3A3A3C"
 C_CLOSE_X    = "#8E8E93"
@@ -447,13 +447,10 @@ class App:
             )
             return
 
-        # ── Fallback: canvas-примитивы ───────────────────────────
-        bg  = C_MIC_BG_ON  if recording else C_MIC_BG
+        # ── Fallback: canvas-примитивы (классический стиль без круга) ──────
         sym = C_MIC_SYM_ON if recording else C_MIC_SYM
 
-        self.cv.create_oval(x-13, cy-13, x+13, cy+13,
-                            fill=bg, outline="", tags=("mic", "mic_bg"))
-        cw, ch, lw = 6, 9, 1.5
+        cw, ch, lw = 8, 11, 1.8
         cap_top = cy - 7
         cap_bot = cap_top + ch
         self.cv.create_arc(x-cw//2, cap_top, x+cw//2, cap_top+cw,
@@ -482,10 +479,7 @@ class App:
             return
 
         # Fallback: canvas-примитивы
-        bg  = C_MIC_BG_ON  if recording else C_MIC_BG
         sym = C_MIC_SYM_ON if recording else C_MIC_SYM
-        for item in self.cv.find_withtag("mic_bg"):
-            self.cv.itemconfig(item, fill=bg)
         for item in self.cv.find_withtag("mic_sym"):
             t = self.cv.type(item)
             if t == "line":
