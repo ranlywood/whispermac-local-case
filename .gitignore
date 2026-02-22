@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+
+# Local config
+.env
+.env.*
+!.env.example
+
+# Logs / outputs
+*.log
+whisper_log.txt
+whisper_perf.log
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+build/
+dist/
+*.dSYM/
+WhisperMac.app/
+
