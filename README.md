@@ -37,7 +37,7 @@
 git clone <your-repo-url>
 cd whispermac-local-case
 ./setup.sh
-open ./dist/WhisperMac.app
+open /Applications/WhisperMac.app
 ```
 
 `setup.sh` делает всё необходимое:
@@ -46,6 +46,7 @@ open ./dist/WhisperMac.app
 - ставит зависимости;
 - предзагружает модель;
 - собирает `dist/WhisperMac.app`.
+- обновляет `/Applications/WhisperMac.app` (с backup старой версии).
 
 Разрешения в macOS (важно: именно для `WhisperMac.app`):
 - `System Settings -> Privacy & Security -> Microphone -> WhisperMac ✅`
@@ -73,6 +74,16 @@ open ./dist/WhisperMac.app
 
 ```bash
 WHISPERMAC_STRICT_LOCAL=1 ./scripts/launch_secure.sh
+```
+
+По умолчанию hotkey-режим:
+- `Right Option` зажат -> запись;
+- `Right Option` отпущен -> остановка и вставка текста.
+
+Если нужно вернуть старое поведение (только клик по виджету):
+
+```bash
+WHISPERMAC_HOLD_KEY=off ./scripts/launch_secure.sh
 ```
 
 ## Сборка .app bundle (иконка в Dock)

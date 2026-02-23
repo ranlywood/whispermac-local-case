@@ -7,6 +7,8 @@ DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/${APP_NAME}.app"
 ICONSET_DIR="$ROOT_DIR/AppIcon.iconset"
 ICNS_PATH="$DIST_DIR/AppIcon.icns"
+INSTALL_DIR="/Applications/${APP_NAME}.app"
+INSTALL_TO_APPLICATIONS="${WHISPERMAC_INSTALL_APPLICATIONS:-1}"
 
 mkdir -p "$DIST_DIR"
 rm -rf "$APP_DIR"
@@ -60,8 +62,7 @@ cat > "$APP_DIR/Contents/MacOS/WhisperMac" <<'LAUNCHER'
 #!/usr/bin/env bash
 set -euo pipefail
 
-BUNDLE_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-PROJECT_DIR="$(cd "$BUNDLE_DIR/../.." && pwd)"
+PROJECT_DIR="__PROJECT_DIR__"
 PY_BIN="$PROJECT_DIR/venv/bin/python"
 LAUNCH_SCRIPT="$PROJECT_DIR/scripts/launch_secure.sh"
 
@@ -78,17 +79,41 @@ fi
 export HF_HUB_DISABLE_TELEMETRY=1
 export WHISPERMAC_DOCK_MODE="${WHISPERMAC_DOCK_MODE:-regular}"
 export WHISPERMAC_SAVE_TRANSCRIPTS="${WHISPERMAC_SAVE_TRANSCRIPTS:-0}"
+export WHISPERMAC_HOLD_KEY="${WHISPERMAC_HOLD_KEY:-right_option}"
 
 exec "$LAUNCH_SCRIPT"
 LAUNCHER
 
+sed -i '' "s|__PROJECT_DIR__|$ROOT_DIR|g" "$APP_DIR/Contents/MacOS/WhisperMac"
 chmod +x "$APP_DIR/Contents/MacOS/WhisperMac"
+
+LAUNCH_APP="$APP_DIR"
+if [[ "$INSTALL_TO_APPLICATIONS" == "1" ]]; then
+  INSTALL_BACKUP="${INSTALL_DIR}.backup-$(date +%Y%m%d-%H%M%S)"
+  if [[ -d "$INSTALL_DIR" ]]; then
+    if mv "$INSTALL_DIR" "$INSTALL_BACKUP" 2>/dev/null; then
+      echo "Старый /Applications bundle сохранен:"
+      echo "  $INSTALL_BACKUP"
+    else
+      echo "Предупреждение: не удалось сделать backup $INSTALL_DIR (нет прав?)."
+    fi
+  fi
+
+  if cp -R "$APP_DIR" "$INSTALL_DIR" 2>/dev/null; then
+    LAUNCH_APP="$INSTALL_DIR"
+  else
+    if [[ -d "$INSTALL_BACKUP" && ! -d "$INSTALL_DIR" ]]; then
+      mv "$INSTALL_BACKUP" "$INSTALL_DIR" 2>/dev/null || true
+    fi
+    echo "Предупреждение: не удалось обновить $INSTALL_DIR, использую dist bundle."
+  fi
+fi
 
 echo "Собран app bundle:"
 echo "  $APP_DIR"
 echo
-echo "Запуск:"
-echo "  open \"$APP_DIR\""
+echo "Запуск (актуальный app):"
+echo "  open \"$LAUNCH_APP\""
 echo
 echo "Разрешения (обязательны для вставки/горячих клавиш):"
 echo "  1) Системные настройки -> Конфиденциальность и безопасность -> Микрофон -> WhisperMac ✅"

@@ -394,8 +394,12 @@ class App:
         if self._hold_key_mode != "right_option" or self._keyboard_mod is None:
             return False
         alt_right = getattr(self._keyboard_mod.Key, "alt_r", None)
+        alt_any = getattr(self._keyboard_mod.Key, "alt", None)
         alt_graph = getattr(self._keyboard_mod.Key, "alt_gr", None)
-        return key == alt_right or key == alt_graph
+        if key == alt_right or key == alt_graph or key == alt_any:
+            return True
+        # fallback for macOS: right option often arrives as virtual keycode 61
+        return getattr(key, "vk", None) == 61
 
     def _on_global_key_press(self, key):
         if not self._is_hold_key(key):

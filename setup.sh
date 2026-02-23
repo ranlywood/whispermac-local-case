@@ -110,11 +110,16 @@ fi
 echo "[6/6] Собираю macOS app bundle..."
 ./scripts/build_app.sh
 
+LAUNCH_APP="$ROOT_DIR/dist/WhisperMac.app"
+if [[ -d "/Applications/WhisperMac.app" ]]; then
+    LAUNCH_APP="/Applications/WhisperMac.app"
+fi
+
 echo ""
 echo "=== Готово! ==="
 echo ""
 echo "Запуск:"
-echo "  open \"$ROOT_DIR/dist/WhisperMac.app\""
+echo "  open \"$LAUNCH_APP\""
 echo ""
 echo "ВАЖНО: выдай разрешения именно для WhisperMac.app:"
 echo "  1. Системные настройки → Конфиденциальность и безопасность → Микрофон → WhisperMac ✅"
