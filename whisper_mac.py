@@ -910,9 +910,34 @@ class App:
         with open(Path.home() / "whisper_perf.log", "a", encoding="utf-8") as f:
             f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {text}\n")
 
+    def _copy_to_clipboard(self, text: str) -> bool:
+        env = os.environ.copy()
+        env.setdefault("LANG", "C.UTF-8")
+        env.setdefault("LC_CTYPE", "C.UTF-8")
+        try:
+            subprocess.run(
+                ["/usr/bin/pbcopy"],
+                input=text.encode("utf-8"),
+                check=True,
+                env=env,
+            )
+            return True
+        except Exception as ex:
+            log(f"pbcopy failed, fallback to Tk clipboard: {ex}")
+            try:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(text)
+                self.root.update_idletasks()
+                return True
+            except Exception as ex2:
+                log(f"clipboard fallback failed: {ex2}")
+                return False
+
     def _paste_and_reset(self, text):
-        subprocess.run(["pbcopy"], input=text, text=True)
-        time.sleep(0.05)   # буфер обмена должен осесть
+        if not self._copy_to_clipboard(text):
+            self._reset()
+            return
+        time.sleep(0.05)
         log(f"Cmd+V → {frontmost_bundle()}")
         cmd_v()
         self._reset()
