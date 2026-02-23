@@ -25,7 +25,7 @@ from Quartz import (
     kCGEventFlagMaskCommand,
     kCGHIDEventTap,
 )
-from AppKit import NSWorkspace
+from AppKit import NSWorkspace, NSPasteboard, NSPasteboardTypeString
 
 
 # ═══════════════════════════════════════════════════
@@ -937,6 +937,16 @@ class App:
         env = os.environ.copy()
         env.setdefault("LANG", "C.UTF-8")
         env.setdefault("LC_CTYPE", "C.UTF-8")
+
+        # Основной путь для macOS GUI-приложений: нативный pasteboard (Unicode).
+        try:
+            pb = NSPasteboard.generalPasteboard()
+            pb.clearContents()
+            if pb.setString_forType_(text, NSPasteboardTypeString):
+                return True
+        except Exception as ex:
+            log(f"NSPasteboard failed, fallback to pbcopy: {ex}")
+
         try:
             subprocess.run(
                 ["/usr/bin/pbcopy"],
@@ -944,6 +954,13 @@ class App:
                 check=True,
                 env=env,
             )
+            pasted = subprocess.check_output(
+                ["/usr/bin/pbpaste"],
+                env=env,
+                text=True,
+            )
+            if pasted != text:
+                raise RuntimeError("pbcopy roundtrip mismatch")
             return True
         except Exception as ex:
             log(f"pbcopy failed, fallback to Tk clipboard: {ex}")
