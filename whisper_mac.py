@@ -8,6 +8,10 @@ import os
 import subprocess
 import threading
 import time
+import sys
+import atexit
+from pathlib import Path
+import fcntl
 
 import numpy as np
 import sounddevice as sd
@@ -110,10 +114,25 @@ EQ_VISUAL_GAMMA  = 0.62    # усиливает видимую реакцию н
 EQ_WOBBLE_MAX    = 0.16    # добавляет "живость" баров при речи
 
 V_KEY = 9
+INSTANCE_LOCK_PATH = os.getenv("WHISPERMAC_INSTANCE_LOCK", "/tmp/whispermac-app.lock")
 
 
 def log(msg):
     print(f"  {msg}", flush=True)
+
+
+def acquire_instance_lock():
+    lock_file = Path(INSTANCE_LOCK_PATH).expanduser()
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(lock_file, "w")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    handle.write(str(os.getpid()))
+    handle.flush()
+    return handle
 
 
 def frontmost_bundle():
@@ -1042,4 +1061,9 @@ class App:
 
 
 if __name__ == "__main__":
+    _instance_lock = acquire_instance_lock()
+    if _instance_lock is None:
+        log("WhisperMac уже запущен, второй экземпляр остановлен")
+        sys.exit(0)
+    atexit.register(_instance_lock.close)
     App().run()
