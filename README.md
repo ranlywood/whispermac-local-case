@@ -109,6 +109,7 @@ python whisper_mac.py
 - `WHISPERMAC_DOCK_MODE=regular|accessory` - отображение в Dock.
 - `WHISPERMAC_USE_PNG_MIC_ICON=1|0` - включить/выключить PNG-иконку микрофона (по умолчанию `1`).
 - `WHISPERMAC_MIC_ICON=/path/to/mic.png` - кастомная PNG-иконка микрофона.
+- `WHISPERMAC_HOLD_KEY=right_option|off` - режим удержания: зажал `Right Option` -> запись, отпустил -> вставка.
 - `WHISPERMAC_SAVE_TRANSCRIPTS=0` - не писать `~/whisper_log.txt`.
 - `WHISPERMAC_SAVE_PERF_LOG=0` - не писать `~/whisper_perf.log`.
 

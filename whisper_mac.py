@@ -271,6 +271,13 @@ class App:
         self._drag_ox   = 0
         self._drag_oy   = 0
         self._dragging  = False
+        self._hold_key_down = False
+        self._hold_started_recording = False
+        self._keyboard_listener = None
+        self._keyboard_mod = None
+        self._hold_key_mode = self._normalize_hold_key_mode(
+            os.getenv("WHISPERMAC_HOLD_KEY", "off")
+        )
 
         # Real-time EQ levels (driven by FFT in audio callback)
         self._eq_levels = np.zeros(BAR_COUNT, dtype=np.float32)
@@ -342,9 +349,87 @@ class App:
         self.cv.bind("<B1-Motion>",       self._motion)
         self.cv.bind("<ButtonRelease-1>", self._release)
 
+        self.root.bind("<Destroy>", self._on_destroy)
+
+        self._setup_hold_key_listener()
         self._track_app()
         self._tick()
         threading.Thread(target=self._load_model, daemon=True).start()
+
+    def _normalize_hold_key_mode(self, raw: str) -> str:
+        mode = (raw or "").strip().lower()
+        if mode in {"right_option", "option_r", "alt_r"}:
+            return "right_option"
+        return "off"
+
+    def _setup_hold_key_listener(self):
+        if self._hold_key_mode == "off":
+            log("Hold-to-talk: off")
+            return
+        try:
+            from pynput import keyboard
+        except Exception as ex:
+            log(f"Hold-to-talk отключен: не удалось загрузить pynput ({ex})")
+            self._hold_key_mode = "off"
+            return
+
+        self._keyboard_mod = keyboard
+        self._keyboard_listener = keyboard.Listener(
+            on_press=self._on_global_key_press,
+            on_release=self._on_global_key_release,
+        )
+        self._keyboard_listener.daemon = True
+        self._keyboard_listener.start()
+        log("Hold-to-talk: right option (нажал -> запись, отпустил -> вставка)")
+
+    def _on_destroy(self, event):
+        if event.widget is self.root:
+            try:
+                if self._keyboard_listener:
+                    self._keyboard_listener.stop()
+            except Exception:
+                pass
+
+    def _is_hold_key(self, key) -> bool:
+        if self._hold_key_mode != "right_option" or self._keyboard_mod is None:
+            return False
+        alt_right = getattr(self._keyboard_mod.Key, "alt_r", None)
+        alt_graph = getattr(self._keyboard_mod.Key, "alt_gr", None)
+        return key == alt_right or key == alt_graph
+
+    def _on_global_key_press(self, key):
+        if not self._is_hold_key(key):
+            return
+        if self._hold_key_down:
+            return
+        self._hold_key_down = True
+        try:
+            self.root.after(0, self._handle_hold_key_down)
+        except Exception:
+            pass
+
+    def _on_global_key_release(self, key):
+        if not self._is_hold_key(key):
+            return
+        if not self._hold_key_down:
+            return
+        self._hold_key_down = False
+        try:
+            self.root.after(0, self._handle_hold_key_up)
+        except Exception:
+            pass
+
+    def _handle_hold_key_down(self):
+        if not self.ready or self.processing or self.recording:
+            self._hold_started_recording = False
+            return
+        self._hold_started_recording = True
+        self._start_rec()
+
+    def _handle_hold_key_up(self):
+        if self._hold_started_recording and self.recording:
+            self._stop_rec()
+        self._hold_started_recording = False
 
     # ── Загрузка PNG-иконки ─────────────────────────────────────
     def _load_mic_images(self):
