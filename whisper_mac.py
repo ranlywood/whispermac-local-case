@@ -275,7 +275,7 @@ def pill_points(x1, y1, x2, y2, r):
 
 
 class App:
-    EXCLUDED = {"python", "whisper-mac", "com.apple.finder"}
+    EXCLUDED = {"python", "whisper-mac", "whispermac", "com.apple.finder"}
 
     def __init__(self):
         self.ready      = False
@@ -380,6 +380,10 @@ class App:
         if mode in {"right_option", "option_r", "alt_r"}:
             return "right_option"
         return "off"
+
+    def _is_excluded_bundle(self, bundle_id: str) -> bool:
+        bid = (bundle_id or "").lower()
+        return not bid or any(ex in bid for ex in self.EXCLUDED)
 
     def _setup_hold_key_listener(self):
         if self._hold_key_mode == "off":
@@ -624,7 +628,9 @@ class App:
         self._eq_smooth[:] = 0
         self._rms_smooth = 0.0
         self._recording_started_at = time.perf_counter()
-        self.target    = frontmost_bundle() or self.target
+        current_bundle = frontmost_bundle()
+        if current_bundle and not self._is_excluded_bundle(current_bundle):
+            self.target = current_bundle
         self.recording = True
         self._set_mic_color(recording=True)
         log(
@@ -977,8 +983,20 @@ class App:
         if not self._copy_to_clipboard(text):
             self._reset()
             return
+        target = self.target or ""
+        front = frontmost_bundle() or ""
+        should_focus_target = (
+            target
+            and front != target
+            and (not front or self._is_excluded_bundle(front))
+        )
+        if should_focus_target:
+            if activate_bundle(target):
+                time.sleep(0.08)
+            else:
+                log(f"Target activate failed: {target}")
         time.sleep(0.05)
-        log(f"Cmd+V → {frontmost_bundle()}")
+        log(f"Cmd+V → {frontmost_bundle()} (target={target or '-'})")
         cmd_v()
         self._reset()
 
@@ -1035,9 +1053,10 @@ class App:
 
     def _track_app(self):
         try:
-            b = frontmost_bundle()
-            if b and not any(ex in b.lower() for ex in self.EXCLUDED):
-                self.target = b
+            if not self.recording and not self.processing:
+                b = frontmost_bundle()
+                if b and not self._is_excluded_bundle(b):
+                    self.target = b
         except Exception:
             pass
         self.root.after(300, self._track_app)
