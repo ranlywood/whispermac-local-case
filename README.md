@@ -67,7 +67,7 @@ open /Applications/WhisperMac.app
 
 Скрипт запускает приложение с:
 - `WHISPERMAC_STRICT_LOCAL=auto` (включается только если модель уже в кэше)
-- `WHISPERMAC_SAVE_TRANSCRIPTS=0`
+- `WHISPERMAC_SAVE_TRANSCRIPTS=1` (логи пишутся в `~/whisper_log.txt`)
 - `WHISPERMAC_SAVE_PERF_LOG=1`
 
 После того как модель уже скачана, можно включить full offline:

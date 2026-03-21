@@ -603,18 +603,20 @@ class App:
                              capstyle="round", tags="close")
 
     def _draw_logs_button(self):
-        cx = W - 22
-        cy_c = H - 11
+        # Кнопка логов: ниже и левее крестика, чтобы не пересекаться визуально.
+        cx = W - 52
+        cy_c = H - 6
+        r = 6
         self._logs_bg = self.cv.create_oval(
-            cx - 8, cy_c - 8, cx + 8, cy_c + 8,
+            cx - r, cy_c - r, cx + r, cy_c + r,
             fill=C_LOG_BG, outline="", tags="logs"
         )
         # Иконка "список"
-        self.cv.create_line(cx - 4, cy_c - 3, cx + 4, cy_c - 3,
+        self.cv.create_line(cx - 3, cy_c - 2, cx + 3, cy_c - 2,
                             fill=C_LOG_X, width=1, capstyle="round", tags="logs")
-        self.cv.create_line(cx - 4, cy_c, cx + 4, cy_c,
+        self.cv.create_line(cx - 3, cy_c, cx + 3, cy_c,
                             fill=C_LOG_X, width=1, capstyle="round", tags="logs")
-        self.cv.create_line(cx - 4, cy_c + 3, cx + 4, cy_c + 3,
+        self.cv.create_line(cx - 3, cy_c + 2, cx + 3, cy_c + 2,
                             fill=C_LOG_X, width=1, capstyle="round", tags="logs")
 
     # ── Логи (UI) ───────────────────────────────────────────────
