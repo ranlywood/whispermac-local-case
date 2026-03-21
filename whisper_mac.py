@@ -96,6 +96,9 @@ C_MIC_SYM_ON = "#FF375F"   # символ микрофона при записи
 C_CLOSE_BG   = "#2C2C2E"
 C_CLOSE_HV   = "#3A3A3C"
 C_CLOSE_X    = "#8E8E93"
+C_LOG_BG     = "#2C2C2E"
+C_LOG_HV     = "#3A3A3C"
+C_LOG_X      = "#8E8E93"
 
 BAR_COUNT = 7
 BAR_W     = 3
@@ -307,6 +310,10 @@ class App:
         self._mic_photo_idle   = None
         self._mic_photo_active = None
         self._mic_item         = None
+        self._logs_win         = None
+        self._logs_list        = None
+        self._logs_text        = None
+        self._log_records      = []
 
         # ── Окно ────────────────────────────────────────────────
         self.root = tk.Tk()
@@ -353,6 +360,7 @@ class App:
 
         # Кнопка закрытия (рисованная)
         self._draw_close()
+        self._draw_logs_button()
 
         # ── Биндинги ────────────────────────────────────────────
         self.cv.tag_bind("close", "<Button-1>",
@@ -363,10 +371,17 @@ class App:
         self.cv.tag_bind("close", "<Leave>",
                          lambda e: self.cv.itemconfig(self._close_bg,
                                                       fill=C_CLOSE_BG))
+        self.cv.tag_bind("logs", "<Button-1>", self._toggle_logs_window)
+        self.cv.tag_bind("logs", "<Enter>",
+                         lambda e: self.cv.itemconfig(self._logs_bg, fill=C_LOG_HV))
+        self.cv.tag_bind("logs", "<Leave>",
+                         lambda e: self.cv.itemconfig(self._logs_bg, fill=C_LOG_BG))
 
         self.cv.bind("<ButtonPress-1>",  self._press)
         self.cv.bind("<B1-Motion>",       self._motion)
         self.cv.bind("<ButtonRelease-1>", self._release)
+        self.root.bind_all("<Command-Shift-E>", self._toggle_logs_window)
+        self.root.bind_all("<Command-Shift-H>", self._toggle_logs_window)
 
         self.root.bind("<Destroy>", self._on_destroy)
 
@@ -407,6 +422,7 @@ class App:
 
     def _on_destroy(self, event):
         if event.widget is self.root:
+            self._close_logs_window()
             try:
                 if self._keyboard_listener:
                     self._keyboard_listener.stop()
@@ -585,6 +601,177 @@ class App:
         self.cv.create_line(cx-d, cy_c+d, cx+d, cy_c-d,
                              fill=C_CLOSE_X, width=lw,
                              capstyle="round", tags="close")
+
+    def _draw_logs_button(self):
+        cx = W - 22
+        cy_c = H - 11
+        self._logs_bg = self.cv.create_oval(
+            cx - 8, cy_c - 8, cx + 8, cy_c + 8,
+            fill=C_LOG_BG, outline="", tags="logs"
+        )
+        # Иконка "список"
+        self.cv.create_line(cx - 4, cy_c - 3, cx + 4, cy_c - 3,
+                            fill=C_LOG_X, width=1, capstyle="round", tags="logs")
+        self.cv.create_line(cx - 4, cy_c, cx + 4, cy_c,
+                            fill=C_LOG_X, width=1, capstyle="round", tags="logs")
+        self.cv.create_line(cx - 4, cy_c + 3, cx + 4, cy_c + 3,
+                            fill=C_LOG_X, width=1, capstyle="round", tags="logs")
+
+    # ── Логи (UI) ───────────────────────────────────────────────
+    def _toggle_logs_window(self, _event=None):
+        if self._logs_win and self._logs_win.winfo_exists():
+            self._close_logs_window()
+        else:
+            self._open_logs_window()
+        return "break"
+
+    def _open_logs_window(self):
+        self._logs_win = tk.Toplevel(self.root)
+        self._logs_win.title("WhisperMac: Логи")
+        self._logs_win.geometry("860x520")
+        self._logs_win.minsize(700, 380)
+        self._logs_win.configure(bg=BG)
+        self._logs_win.protocol("WM_DELETE_WINDOW", self._close_logs_window)
+
+        root_frame = tk.Frame(self._logs_win, bg=BG)
+        root_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        left = tk.Frame(root_frame, bg=BG)
+        left.pack(side="left", fill="both", expand=False)
+        right = tk.Frame(root_frame, bg=BG)
+        right.pack(side="right", fill="both", expand=True, padx=(10, 0))
+
+        self._logs_list = tk.Listbox(
+            left,
+            width=46,
+            bg="#151518",
+            fg="#E8E8EA",
+            selectbackground="#2C2C31",
+            selectforeground="#FFFFFF",
+            activestyle="none",
+            borderwidth=0,
+            highlightthickness=0,
+        )
+        list_scroll = tk.Scrollbar(left, orient="vertical", command=self._logs_list.yview)
+        self._logs_list.config(yscrollcommand=list_scroll.set)
+        self._logs_list.pack(side="left", fill="both", expand=True)
+        list_scroll.pack(side="right", fill="y")
+        self._logs_list.bind("<<ListboxSelect>>", self._on_log_select)
+
+        self._logs_text = tk.Text(
+            right,
+            wrap="word",
+            bg="#151518",
+            fg="#F1F1F4",
+            insertbackground="#F1F1F4",
+            borderwidth=0,
+            highlightthickness=0,
+            padx=10,
+            pady=10,
+        )
+        text_scroll = tk.Scrollbar(right, orient="vertical", command=self._logs_text.yview)
+        self._logs_text.config(yscrollcommand=text_scroll.set)
+        self._logs_text.pack(side="left", fill="both", expand=True)
+        text_scroll.pack(side="right", fill="y")
+
+        controls = tk.Frame(self._logs_win, bg=BG)
+        controls.pack(fill="x", padx=10, pady=(0, 10))
+        tk.Button(controls, text="Обновить", command=self._refresh_logs).pack(side="left")
+        tk.Button(controls, text="Копировать", command=self._copy_selected_log).pack(side="left", padx=(6, 0))
+        tk.Button(controls, text="Открыть Файл", command=self._open_logs_file).pack(side="right")
+
+        self._refresh_logs()
+
+    def _close_logs_window(self):
+        if self._logs_win and self._logs_win.winfo_exists():
+            self._logs_win.destroy()
+        self._logs_win = None
+        self._logs_list = None
+        self._logs_text = None
+        self._log_records = []
+
+    def _log_file_path(self) -> Path:
+        return Path.home() / "whisper_log.txt"
+
+    def _read_log_records(self) -> list:
+        path = self._log_file_path()
+        if not path.exists():
+            return []
+        records = []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    raw = line.strip()
+                    if not raw:
+                        continue
+                    ts = ""
+                    text = raw
+                    if raw.startswith("[") and "] " in raw:
+                        ts, text = raw[1:].split("] ", 1)
+                    text = text.strip()
+                    if not text:
+                        continue
+                    records.append({"ts": ts, "text": text})
+        except Exception as ex:
+            log(f"Не удалось прочитать лог: {ex}")
+            return []
+        return list(reversed(records[-1000:]))
+
+    def _log_preview(self, text: str, max_len: int = 72) -> str:
+        cleaned = " ".join(text.split())
+        if len(cleaned) <= max_len:
+            return cleaned
+        return cleaned[: max_len - 1] + "…"
+
+    def _refresh_logs(self):
+        if not self._logs_list:
+            return
+        prev_idx = self._selected_log_index()
+        self._log_records = self._read_log_records()
+        self._logs_list.delete(0, tk.END)
+        for item in self._log_records:
+            ts = item["ts"] or "--"
+            self._logs_list.insert(tk.END, f"{ts} · {self._log_preview(item['text'])}")
+        if self._log_records:
+            idx = prev_idx if prev_idx is not None and prev_idx < len(self._log_records) else 0
+            self._logs_list.selection_set(idx)
+            self._logs_list.activate(idx)
+            self._on_log_select()
+        elif self._logs_text:
+            self._logs_text.delete("1.0", tk.END)
+
+    def _selected_log_index(self):
+        if not self._logs_list:
+            return None
+        cur = self._logs_list.curselection()
+        if not cur:
+            return None
+        idx = int(cur[0])
+        if idx < 0 or idx >= len(self._log_records):
+            return None
+        return idx
+
+    def _on_log_select(self, _event=None):
+        if not self._logs_text:
+            return
+        idx = self._selected_log_index()
+        self._logs_text.delete("1.0", tk.END)
+        if idx is None:
+            return
+        item = self._log_records[idx]
+        header = f"{item['ts']}\n\n" if item["ts"] else ""
+        self._logs_text.insert("1.0", header + item["text"])
+
+    def _copy_selected_log(self):
+        idx = self._selected_log_index()
+        if idx is None:
+            return
+        item = self._log_records[idx]
+        if self._copy_to_clipboard(item["text"]):
+            log("Лог скопирован в буфер")
+
+    def _open_logs_file(self):
+        subprocess.run(["open", str(self._log_file_path())], check=False)
 
     # ── Drag ────────────────────────────────────────────────────
     def _press(self, e):
@@ -930,6 +1117,8 @@ class App:
         from pathlib import Path
         with open(Path.home() / "whisper_log.txt", "a", encoding="utf-8") as f:
             f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {text}\n")
+        if self._logs_win and self._logs_win.winfo_exists():
+            self.root.after(0, self._refresh_logs)
 
     def _save_perf(self, text):
         if not SAVE_PERF_LOG:

@@ -86,6 +86,11 @@ WHISPERMAC_STRICT_LOCAL=1 ./scripts/launch_secure.sh
 WHISPERMAC_HOLD_KEY=off ./scripts/launch_secure.sh
 ```
 
+Логи транскрибаций:
+- кнопка лога встроена в виджет (справа внизу), клик открывает/скрывает окно логов;
+- горячая клавиша: `Cmd+Shift+E` (также поддерживается `Cmd+Shift+H`);
+- источник данных: `~/whisper_log.txt`.
+
 ## Сборка .app bundle (иконка в Dock)
 
 ```bash
