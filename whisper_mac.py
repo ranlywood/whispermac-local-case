@@ -17,6 +17,11 @@ import numpy as np
 import sounddevice as sd
 import mlx_whisper
 import tkinter as tk
+from ApplicationServices import (
+    AXIsProcessTrusted,
+    AXIsProcessTrustedWithOptions,
+    kAXTrustedCheckOptionPrompt,
+)
 
 from Quartz import (
     CGEventCreateKeyboardEvent,
@@ -24,6 +29,7 @@ from Quartz import (
     CGEventSetFlags,
     kCGEventFlagMaskCommand,
     kCGHIDEventTap,
+    kCGSessionEventTap,
 )
 from AppKit import NSWorkspace, NSPasteboard, NSPasteboardTypeString
 
@@ -78,6 +84,7 @@ SILENCE_SKIP_NO_SPEECH = min(
 SILENCE_SKIP_MAX_CHARS = int(max(8, _env_float("WHISPERMAC_SILENCE_SKIP_MAX_CHARS", 36)))
 FINAL_TEMPERATURES = (0.0, 0.2, 0.4, 0.6)
 HOTWORDS_PROMPT = "WhisperMac, Whisper Flow, Miro, Zoom, Claude Code, ChatGPT."
+PASTE_SHORTCUT_MODE = os.getenv("WHISPERMAC_PASTE_SHORTCUT_MODE", "auto").strip().lower()
 # ═══════════════════════════════════════════════════
 
 W, H   = 228, 52
@@ -117,11 +124,21 @@ EQ_VISUAL_GAMMA  = 0.62    # усиливает видимую реакцию н
 EQ_WOBBLE_MAX    = 0.16    # добавляет "живость" баров при речи
 
 V_KEY = 9
+COMMAND_KEY = 55
 INSTANCE_LOCK_PATH = os.getenv("WHISPERMAC_INSTANCE_LOCK", "/tmp/whispermac-app.lock")
 
 
 def log(msg):
-    print(f"  {msg}", flush=True)
+    line = f"  {msg}"
+    print(line, flush=True)
+    if not _env_bool("WHISPERMAC_RUNTIME_LOG", True):
+        return
+    try:
+        from datetime import datetime
+        with open(Path.home() / "whisper_runtime.log", "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}\n")
+    except Exception:
+        pass
 
 
 def acquire_instance_lock():
@@ -144,19 +161,134 @@ def frontmost_bundle():
 
 
 def activate_bundle(bid):
+    NSApplicationActivateAllWindows = 1
     NSApplicationActivateIgnoringOtherApps = 2
+    options = NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps
     for app in NSWorkspace.sharedWorkspace().runningApplications():
         if app.bundleIdentifier() == bid:
-            app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+            try:
+                app.activateWithOptions_(options)
+                if _wait_for_frontmost_bundle(bid):
+                    return True
+            except Exception as ex:
+                log(f"NSWorkspace activate failed for {bid}: {ex}")
+            break
+    return activate_bundle_osascript(bid)
+
+
+def _wait_for_frontmost_bundle(bid, timeout: float = 0.45) -> bool:
+    deadline = time.perf_counter() + timeout
+    while time.perf_counter() < deadline:
+        if frontmost_bundle() == bid:
             return True
+        time.sleep(0.03)
     return False
 
 
-def cmd_v():
-    for pressed in (True, False):
-        e = CGEventCreateKeyboardEvent(None, V_KEY, pressed)
-        CGEventSetFlags(e, kCGEventFlagMaskCommand)
-        CGEventPost(kCGHIDEventTap, e)
+def activate_bundle_osascript(bid) -> bool:
+    if not bid:
+        return False
+    script = f'tell application id "{bid}" to activate'
+    try:
+        proc = subprocess.run(
+            ["/usr/bin/osascript", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+        )
+    except subprocess.TimeoutExpired:
+        log(f"osascript activate timed out: {bid}")
+        return False
+    except Exception as ex:
+        log(f"osascript activate failed for {bid}: {ex}")
+        return False
+
+    if proc.returncode == 0 and _wait_for_frontmost_bundle(bid, timeout=0.65):
+        return True
+
+    err = (proc.stderr or proc.stdout or "").strip()
+    log(f"osascript activate did not focus {bid}: {err or f'code={proc.returncode}'}")
+    return False
+
+
+def request_accessibility_permission(prompt: bool = False) -> bool:
+    try:
+        if prompt:
+            return bool(
+                AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})
+            )
+        return bool(AXIsProcessTrusted())
+    except Exception as ex:
+        log(f"Accessibility check failed: {ex}")
+        return False
+
+
+def _post_key(key_code: int, pressed: bool, flags: int = 0, tap: int = kCGHIDEventTap):
+    event = CGEventCreateKeyboardEvent(None, key_code, pressed)
+    CGEventSetFlags(event, flags)
+    CGEventPost(tap, event)
+
+
+def cmd_v(tap: int = kCGHIDEventTap):
+    _post_key(COMMAND_KEY, True, kCGEventFlagMaskCommand, tap)
+    time.sleep(0.015)
+    _post_key(V_KEY, True, kCGEventFlagMaskCommand, tap)
+    time.sleep(0.015)
+    _post_key(V_KEY, False, kCGEventFlagMaskCommand, tap)
+    time.sleep(0.015)
+    _post_key(COMMAND_KEY, False, 0, tap)
+
+
+def cmd_v_osascript(target_bid: str = "") -> bool:
+    script_lines = []
+    if target_bid:
+        script_lines.extend([
+            f'tell application id "{target_bid}" to activate',
+            "delay 0.18",
+        ])
+    script_lines.append('tell application "System Events" to keystroke "v" using command down')
+    args = ["/usr/bin/osascript"]
+    for line in script_lines:
+        args.extend(["-e", line])
+    try:
+        proc = subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+        )
+    except subprocess.TimeoutExpired:
+        log("osascript Cmd+V timed out")
+        return False
+    except Exception as ex:
+        log(f"osascript Cmd+V failed: {ex}")
+        return False
+
+    if proc.returncode == 0:
+        return True
+
+    err = (proc.stderr or proc.stdout or "").strip()
+    log(f"osascript Cmd+V failed: {err or f'code={proc.returncode}'}")
+    return False
+
+
+def cmd_v_pynput() -> bool:
+    try:
+        from pynput import keyboard
+        ctl = keyboard.Controller()
+        ctl.press(keyboard.Key.cmd)
+        time.sleep(0.015)
+        ctl.press("v")
+        time.sleep(0.015)
+        ctl.release("v")
+        time.sleep(0.015)
+        ctl.release(keyboard.Key.cmd)
+        return True
+    except Exception as ex:
+        log(f"pynput Cmd+V failed: {ex}")
+        return False
 
 
 def _clean_chunk(text: str) -> str:
@@ -314,6 +446,9 @@ class App:
         self._logs_list        = None
         self._logs_text        = None
         self._log_records      = []
+        self._logs_bounds      = (0, 0, 0, 0)
+        self._close_bounds     = (0, 0, 0, 0)
+        self._suppress_next_toggle = False
 
         # ── Окно ────────────────────────────────────────────────
         self.root = tk.Tk()
@@ -372,6 +507,7 @@ class App:
                          lambda e: self.cv.itemconfig(self._close_bg,
                                                       fill=C_CLOSE_BG))
         self.cv.tag_bind("logs", "<Button-1>", self._toggle_logs_window)
+        self.cv.tag_bind("logs", "<ButtonRelease-1>", lambda _e: "break")
         self.cv.tag_bind("logs", "<Enter>",
                          lambda e: self.cv.itemconfig(self._logs_bg, fill=C_LOG_HV))
         self.cv.tag_bind("logs", "<Leave>",
@@ -386,6 +522,9 @@ class App:
         self.root.bind("<Destroy>", self._on_destroy)
 
         self._setup_hold_key_listener()
+        if not request_accessibility_permission(prompt=True):
+            log("Accessibility not granted: auto-paste and hold-key may not work")
+            self._open_privacy_panel("Accessibility")
         self._track_app()
         self._tick()
         threading.Thread(target=self._load_model, daemon=True).start()
@@ -589,6 +728,7 @@ class App:
         """Круглая кнопка закрытия с крестиком."""
         cx = W - 22
         cy_c = H // 2
+        self._close_bounds = (cx - 16, cy_c - 16, cx + 16, cy_c + 16)
         self._close_bg = self.cv.create_oval(
             cx - 13, cy_c - 13, cx + 13, cy_c + 13,
             fill=C_CLOSE_BG, outline="", tags="close"
@@ -603,24 +743,25 @@ class App:
                              capstyle="round", tags="close")
 
     def _draw_logs_button(self):
-        # Кнопка логов: ниже и левее крестика, чтобы не пересекаться визуально.
-        cx = W - 52
-        cy_c = H - 6
-        r = 6
+        cx = W - 56
+        cy_c = H // 2
+        r = 13
+        self._logs_bounds = (cx - 16, cy_c - 16, cx + 16, cy_c + 16)
         self._logs_bg = self.cv.create_oval(
             cx - r, cy_c - r, cx + r, cy_c + r,
             fill=C_LOG_BG, outline="", tags="logs"
         )
         # Иконка "список"
-        self.cv.create_line(cx - 3, cy_c - 2, cx + 3, cy_c - 2,
-                            fill=C_LOG_X, width=1, capstyle="round", tags="logs")
-        self.cv.create_line(cx - 3, cy_c, cx + 3, cy_c,
-                            fill=C_LOG_X, width=1, capstyle="round", tags="logs")
-        self.cv.create_line(cx - 3, cy_c + 2, cx + 3, cy_c + 2,
-                            fill=C_LOG_X, width=1, capstyle="round", tags="logs")
+        self.cv.create_line(cx - 5, cy_c - 4, cx + 5, cy_c - 4,
+                            fill=C_LOG_X, width=1.4, capstyle="round", tags="logs")
+        self.cv.create_line(cx - 5, cy_c, cx + 5, cy_c,
+                            fill=C_LOG_X, width=1.4, capstyle="round", tags="logs")
+        self.cv.create_line(cx - 5, cy_c + 4, cx + 5, cy_c + 4,
+                            fill=C_LOG_X, width=1.4, capstyle="round", tags="logs")
 
     # ── Логи (UI) ───────────────────────────────────────────────
     def _toggle_logs_window(self, _event=None):
+        self._suppress_next_toggle = True
         if self._logs_win and self._logs_win.winfo_exists():
             self._close_logs_window()
         else:
@@ -680,7 +821,8 @@ class App:
         controls.pack(fill="x", padx=10, pady=(0, 10))
         tk.Button(controls, text="Обновить", command=self._refresh_logs).pack(side="left")
         tk.Button(controls, text="Копировать", command=self._copy_selected_log).pack(side="left", padx=(6, 0))
-        tk.Button(controls, text="Открыть Файл", command=self._open_logs_file).pack(side="right")
+        tk.Button(controls, text="Диагностика", command=self._open_runtime_log_file).pack(side="right")
+        tk.Button(controls, text="Открыть Файл", command=self._open_logs_file).pack(side="right", padx=(0, 6))
 
         self._refresh_logs()
 
@@ -694,6 +836,9 @@ class App:
 
     def _log_file_path(self) -> Path:
         return Path.home() / "whisper_log.txt"
+
+    def _runtime_log_file_path(self) -> Path:
+        return Path.home() / "whisper_runtime.log"
 
     def _read_log_records(self) -> list:
         path = self._log_file_path()
@@ -775,17 +920,31 @@ class App:
     def _open_logs_file(self):
         subprocess.run(["open", str(self._log_file_path())], check=False)
 
+    def _open_runtime_log_file(self):
+        subprocess.run(["open", str(self._runtime_log_file_path())], check=False)
+
     # ── Drag ────────────────────────────────────────────────────
+    def _point_in_bounds(self, x: int, y: int, bounds: tuple) -> bool:
+        x1, y1, x2, y2 = bounds
+        return x1 <= x <= x2 and y1 <= y <= y2
+
+    def _is_control_hit(self, e) -> bool:
+        return (
+            self._point_in_bounds(e.x, e.y, self._close_bounds)
+            or self._point_in_bounds(e.x, e.y, self._logs_bounds)
+        )
+
     def _press(self, e):
-        if e.x > W - 44:
-            return
+        if self._is_control_hit(e):
+            self._suppress_next_toggle = True
+            return "break"
         self._drag_ox = e.x
         self._drag_oy = e.y
         self._dragging = False
 
     def _motion(self, e):
-        if e.x > W - 44:
-            return
+        if self._is_control_hit(e):
+            return "break"
         if abs(e.x - self._drag_ox) + abs(e.y - self._drag_oy) > 4:
             self._dragging = True
         if self._dragging:
@@ -795,8 +954,10 @@ class App:
             )
 
     def _release(self, e):
-        if e.x > W - 44:
-            return
+        if self._suppress_next_toggle or self._is_control_hit(e):
+            self._suppress_next_toggle = False
+            self._dragging = False
+            return "break"
         if not self._dragging:
             self._toggle()
         self._dragging = False
@@ -849,6 +1010,9 @@ class App:
 
     def _stop_rec(self):
         self.recording = False
+        current_bundle = frontmost_bundle()
+        if current_bundle and not self._is_excluded_bundle(current_bundle):
+            self.target = current_bundle
         if self.stream:
             self.stream.stop()
             self.stream.close()
@@ -1130,6 +1294,65 @@ class App:
         with open(Path.home() / "whisper_perf.log", "a", encoding="utf-8") as f:
             f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {text}\n")
 
+    def _send_paste_shortcut(self, target: str = "") -> bool:
+        mode = PASTE_SHORTCUT_MODE
+        modes = {
+            "osascript": (("osascript", lambda: cmd_v_osascript(target)),),
+            "pynput": (("pynput", cmd_v_pynput),),
+            "session": (("session", lambda: self._send_cgevent(kCGSessionEventTap)),),
+            "cgevent": (("cgevent", lambda: self._send_cgevent(kCGHIDEventTap)),),
+            "auto": (
+                ("osascript", lambda: cmd_v_osascript(target)),
+                ("pynput", cmd_v_pynput),
+                ("session", lambda: self._send_cgevent(kCGSessionEventTap)),
+                ("cgevent", lambda: self._send_cgevent(kCGHIDEventTap)),
+            ),
+        }
+        for name, sender in modes.get(mode, modes["auto"]):
+            if name != "osascript" and not request_accessibility_permission(prompt=False):
+                log("Accessibility permission missing for simulated paste")
+                return False
+            if sender():
+                log(f"Paste shortcut sent via {name}")
+                return True
+        return False
+
+    def _send_cgevent(self, tap: int) -> bool:
+        try:
+            cmd_v(tap)
+            return True
+        except Exception as ex:
+            log(f"CGEvent Cmd+V failed: {ex}")
+            return False
+
+    def _temporarily_move_self_away(self) -> bool:
+        logs_hidden = False
+        try:
+            self.root.attributes("-topmost", False)
+            self.root.lower()
+        except Exception:
+            pass
+        try:
+            if self._logs_win and self._logs_win.winfo_exists():
+                self._logs_win.withdraw()
+                logs_hidden = True
+        except Exception:
+            pass
+        return logs_hidden
+
+    def _restore_after_paste(self, logs_hidden: bool):
+        def restore():
+            try:
+                self.root.attributes("-topmost", True)
+            except Exception:
+                pass
+            try:
+                if logs_hidden and self._logs_win and self._logs_win.winfo_exists():
+                    self._logs_win.deiconify()
+            except Exception:
+                pass
+        self.root.after(350, restore)
+
     def _copy_to_clipboard(self, text: str) -> bool:
         env = os.environ.copy()
         env.setdefault("LANG", "C.UTF-8")
@@ -1175,20 +1398,32 @@ class App:
             self._reset()
             return
         target = self.target or ""
+        if self._is_excluded_bundle(target):
+            target = ""
         front = frontmost_bundle() or ""
-        should_focus_target = (
-            target
-            and front != target
-            and (not front or self._is_excluded_bundle(front))
-        )
-        if should_focus_target:
+        if not target and front and not self._is_excluded_bundle(front):
+            target = front
+
+        if not target and self._is_excluded_bundle(front):
+            log("Paste skipped: no external target; text is in clipboard")
+            self._reset()
+            return
+
+        logs_hidden = self._temporarily_move_self_away()
+        if target:
             if activate_bundle(target):
-                time.sleep(0.08)
+                front = frontmost_bundle() or ""
             else:
                 log(f"Target activate failed: {target}")
-        time.sleep(0.05)
-        log(f"Cmd+V → {frontmost_bundle()} (target={target or '-'})")
-        cmd_v()
+        time.sleep(0.08)
+        front = frontmost_bundle() or ""
+        log(
+            f"Paste target={target or '-'} frontmost={front or '-'} "
+            f"mode={PASTE_SHORTCUT_MODE or 'auto'}"
+        )
+        if not self._send_paste_shortcut(target):
+            self._open_privacy_panel("Accessibility")
+        self._restore_after_paste(logs_hidden)
         self._reset()
 
     def _reset(self):

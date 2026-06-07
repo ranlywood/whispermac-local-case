@@ -51,6 +51,7 @@ open /Applications/WhisperMac.app
 Разрешения в macOS (важно: именно для `WhisperMac.app`):
 - `System Settings -> Privacy & Security -> Microphone -> WhisperMac ✅`
 - `System Settings -> Privacy & Security -> Accessibility -> WhisperMac ✅`
+- `System Settings -> Privacy & Security -> Input Monitoring -> WhisperMac ✅`
 - если выданы после запуска: перезапусти `WhisperMac.app`
 
 ## Платформы
@@ -87,9 +88,10 @@ WHISPERMAC_HOLD_KEY=off ./scripts/launch_secure.sh
 ```
 
 Логи транскрибаций:
-- кнопка лога встроена в виджет (справа внизу), клик открывает/скрывает окно логов;
+- кнопка лога встроена в виджет рядом с крестиком, клик открывает/скрывает окно логов;
 - горячая клавиша: `Cmd+Shift+E` (также поддерживается `Cmd+Shift+H`);
 - источник данных: `~/whisper_log.txt`.
+- диагностический лог вставки/фокуса: `~/whisper_runtime.log` (кнопка `Диагностика` в окне логов).
 
 ## Сборка .app bundle (иконка в Dock)
 
@@ -97,6 +99,8 @@ WHISPERMAC_HOLD_KEY=off ./scripts/launch_secure.sh
 ./scripts/build_app.sh
 open ./dist/WhisperMac.app
 ```
+
+Сборка создаёт native macOS executable внутри `.app`, чтобы macOS показывала `WhisperMac`, а не `bash`, в Privacy & Security permissions.
 
 Если запускать через `.app`, в Dock будет имя и иконка WhisperMac (не Python).
 
@@ -128,6 +132,8 @@ python whisper_mac.py
 - `WHISPERMAC_HOLD_KEY=right_option|off` - режим удержания: зажал `Right Option` -> запись, отпустил -> вставка.
 - `WHISPERMAC_SAVE_TRANSCRIPTS=0` - не писать `~/whisper_log.txt`.
 - `WHISPERMAC_SAVE_PERF_LOG=0` - не писать `~/whisper_perf.log`.
+- `WHISPERMAC_PASTE_SHORTCUT_MODE=auto|osascript|pynput|session|cgevent` - способ отправки `Cmd+V` (по умолчанию `auto`).
+- `WHISPERMAC_RUNTIME_LOG=0` - отключить `~/whisper_runtime.log`.
 
 ## Публичный релиз-чек
 

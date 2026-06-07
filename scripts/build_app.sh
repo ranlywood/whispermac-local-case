@@ -9,6 +9,8 @@ ICONSET_DIR="$ROOT_DIR/AppIcon.iconset"
 ICNS_PATH="$DIST_DIR/AppIcon.icns"
 INSTALL_DIR="/Applications/${APP_NAME}.app"
 INSTALL_TO_APPLICATIONS="${WHISPERMAC_INSTALL_APPLICATIONS:-1}"
+PY_BIN="$ROOT_DIR/venv/bin/python"
+LAUNCHER_SRC="$ROOT_DIR/launcher.c"
 
 mkdir -p "$DIST_DIR"
 rm -rf "$APP_DIR"
@@ -21,6 +23,54 @@ fi
 
 if ! command -v iconutil >/dev/null 2>&1; then
   echo "Не найден iconutil (нужны Xcode Command Line Tools)."
+  exit 1
+fi
+
+if [[ ! -x "$PY_BIN" ]]; then
+  echo "Не найден Python venv: $PY_BIN"
+  echo "Сначала запусти ./setup.sh в директории проекта."
+  exit 1
+fi
+
+if [[ ! -f "$LAUNCHER_SRC" ]]; then
+  echo "Не найден native launcher: $LAUNCHER_SRC"
+  exit 1
+fi
+
+if ! command -v clang >/dev/null 2>&1; then
+  echo "Не найден clang (нужны Xcode Command Line Tools)."
+  exit 1
+fi
+
+PY_VERSION="$("$PY_BIN" - <<'PY'
+import sysconfig
+print(sysconfig.get_config_var("VERSION") or "")
+PY
+)"
+PY_INCLUDE="$("$PY_BIN" - <<'PY'
+import sysconfig
+print(sysconfig.get_config_var("INCLUDEPY") or "")
+PY
+)"
+PY_LIBDIR="$("$PY_BIN" - <<'PY'
+import sysconfig
+print(sysconfig.get_config_var("LIBDIR") or "")
+PY
+)"
+PY_LDFLAGS="$("$PY_BIN" - <<'PY'
+import sysconfig
+parts = [
+    f"-L{sysconfig.get_config_var('LIBDIR')}",
+    f"-lpython{sysconfig.get_config_var('VERSION')}",
+    "-ldl",
+    "-framework", "CoreFoundation",
+]
+print(" ".join(p for p in parts if p and p != "-LNone" and p != "-lpythonNone"))
+PY
+)"
+
+if [[ -z "$PY_VERSION" || -z "$PY_INCLUDE" || -z "$PY_LIBDIR" ]]; then
+  echo "Не удалось получить параметры сборки Python из $PY_BIN"
   exit 1
 fi
 
@@ -54,38 +104,27 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <string>13.0</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>WhisperMac uses microphone input to transcribe your speech locally.</string>
+  <key>NSInputMonitoringUsageDescription</key>
+  <string>WhisperMac listens for the hold-to-talk hotkey and sends paste keystrokes to insert transcribed text.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>WhisperMac uses System Events as a fallback to paste transcribed text into the active app.</string>
 </dict>
 </plist>
 PLIST
 
-cat > "$APP_DIR/Contents/MacOS/WhisperMac" <<'LAUNCHER'
-#!/usr/bin/env bash
-set -euo pipefail
-
-PROJECT_DIR="__PROJECT_DIR__"
-PY_BIN="$PROJECT_DIR/venv/bin/python"
-LAUNCH_SCRIPT="$PROJECT_DIR/scripts/launch_secure.sh"
-
-if [[ ! -x "$PY_BIN" ]]; then
-  osascript -e 'display alert "WhisperMac: нужна установка" message "Сначала запусти ./setup.sh в директории проекта." as critical'
-  exit 1
-fi
-
-if [[ ! -x "$LAUNCH_SCRIPT" ]]; then
-  osascript -e 'display alert "WhisperMac: ошибка запуска" message "Не найден scripts/launch_secure.sh или он не исполняемый." as critical'
-  exit 1
-fi
-
-export HF_HUB_DISABLE_TELEMETRY=1
-export WHISPERMAC_DOCK_MODE="${WHISPERMAC_DOCK_MODE:-regular}"
-export WHISPERMAC_SAVE_TRANSCRIPTS="${WHISPERMAC_SAVE_TRANSCRIPTS:-1}"
-export WHISPERMAC_HOLD_KEY="${WHISPERMAC_HOLD_KEY:-right_option}"
-
-exec "$LAUNCH_SCRIPT"
-LAUNCHER
-
-sed -i '' "s|__PROJECT_DIR__|$ROOT_DIR|g" "$APP_DIR/Contents/MacOS/WhisperMac"
+clang \
+  "$LAUNCHER_SRC" \
+  -o "$APP_DIR/Contents/MacOS/WhisperMac" \
+  -I"$PY_INCLUDE" \
+  -Wl,-rpath,"$PY_LIBDIR" \
+  $PY_LDFLAGS \
+  -DWHISPERMAC_PROJECT_DIR="\"$ROOT_DIR\"" \
+  -DWHISPERMAC_PYTHON_VERSION="\"$PY_VERSION\""
 chmod +x "$APP_DIR/Contents/MacOS/WhisperMac"
+
+if command -v codesign >/dev/null 2>&1; then
+  codesign --force --deep --sign - "$APP_DIR" >/dev/null
+fi
 
 LAUNCH_APP="$APP_DIR"
 if [[ "$INSTALL_TO_APPLICATIONS" == "1" ]]; then
@@ -118,4 +157,6 @@ echo
 echo "Разрешения (обязательны для вставки/горячих клавиш):"
 echo "  1) Системные настройки -> Конфиденциальность и безопасность -> Микрофон -> WhisperMac ✅"
 echo "  2) Системные настройки -> Конфиденциальность и безопасность -> Универсальный доступ -> WhisperMac ✅"
-echo "  3) Если выданы после запуска: закрой и открой WhisperMac.app заново"
+echo "  3) Системные настройки -> Конфиденциальность и безопасность -> Мониторинг ввода -> WhisperMac ✅"
+echo "  4) Если macOS спросит Automation/System Events -> Разрешить"
+echo "  5) Если выданы после запуска: закрой и открой WhisperMac.app заново"
