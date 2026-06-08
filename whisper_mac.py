@@ -20,6 +20,14 @@ import tkinter as tk
 from ApplicationServices import (
     AXIsProcessTrusted,
     AXIsProcessTrustedWithOptions,
+    AXUIElementCopyAttributeValue,
+    AXUIElementCreateApplication,
+    AXUIElementIsAttributeSettable,
+    AXUIElementSetAttributeValue,
+    AXUIElementSetMessagingTimeout,
+    kAXFocusedUIElementAttribute,
+    kAXRoleAttribute,
+    kAXSelectedTextAttribute,
     kAXTrustedCheckOptionPrompt,
 )
 
@@ -212,6 +220,15 @@ def activate_bundle_osascript(bid) -> bool:
     return False
 
 
+def running_app_for_bundle(bid):
+    if not bid:
+        return None
+    for app in NSWorkspace.sharedWorkspace().runningApplications():
+        if app.bundleIdentifier() == bid:
+            return app
+    return None
+
+
 def request_accessibility_permission(prompt: bool = False) -> bool:
     try:
         if prompt:
@@ -221,6 +238,60 @@ def request_accessibility_permission(prompt: bool = False) -> bool:
         return bool(AXIsProcessTrusted())
     except Exception as ex:
         log(f"Accessibility check failed: {ex}")
+        return False
+
+
+def ax_insert_text(text: str, target_bid: str = "") -> bool:
+    if not text:
+        return False
+    if not request_accessibility_permission(prompt=False):
+        log("AX insert skipped: Accessibility permission missing")
+        return False
+
+    app = None
+    front = NSWorkspace.sharedWorkspace().frontmostApplication()
+    if front and (not target_bid or front.bundleIdentifier() == target_bid):
+        app = front
+    if app is None:
+        app = running_app_for_bundle(target_bid)
+    if app is None:
+        log(f"AX insert failed: target app not found ({target_bid or '-'})")
+        return False
+
+    try:
+        ax_app = AXUIElementCreateApplication(app.processIdentifier())
+        AXUIElementSetMessagingTimeout(ax_app, 0.35)
+        err, focused = AXUIElementCopyAttributeValue(
+            ax_app,
+            kAXFocusedUIElementAttribute,
+            None,
+        )
+        if err != 0 or focused is None:
+            log(f"AX insert failed: no focused element err={err}")
+            return False
+
+        try:
+            _, role = AXUIElementCopyAttributeValue(focused, kAXRoleAttribute, None)
+        except Exception:
+            role = "?"
+
+        settable_err, settable = AXUIElementIsAttributeSettable(
+            focused,
+            kAXSelectedTextAttribute,
+            None,
+        )
+        if settable_err != 0 or not settable:
+            log(f"AX insert unavailable: role={role} settable_err={settable_err}")
+            return False
+
+        err = AXUIElementSetAttributeValue(focused, kAXSelectedTextAttribute, text)
+        if err == 0:
+            log(f"AX insert succeeded: role={role}")
+            return True
+        log(f"AX insert failed: role={role} err={err}")
+        return False
+    except Exception as ex:
+        log(f"AX insert exception: {ex}")
         return False
 
 
@@ -271,6 +342,40 @@ def cmd_v_osascript(target_bid: str = "") -> bool:
 
     err = (proc.stderr or proc.stdout or "").strip()
     log(f"osascript Cmd+V failed: {err or f'code={proc.returncode}'}")
+    return False
+
+
+def cmd_v_osascript_keycode(target_bid: str = "") -> bool:
+    script_lines = []
+    if target_bid:
+        script_lines.extend([
+            f'tell application id "{target_bid}" to activate',
+            "delay 0.18",
+        ])
+    script_lines.append('tell application "System Events" to key code 9 using command down')
+    args = ["/usr/bin/osascript"]
+    for line in script_lines:
+        args.extend(["-e", line])
+    try:
+        proc = subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+        )
+    except subprocess.TimeoutExpired:
+        log("osascript keycode Cmd+V timed out")
+        return False
+    except Exception as ex:
+        log(f"osascript keycode Cmd+V failed: {ex}")
+        return False
+
+    if proc.returncode == 0:
+        return True
+
+    err = (proc.stderr or proc.stdout or "").strip()
+    log(f"osascript keycode Cmd+V failed: {err or f'code={proc.returncode}'}")
     return False
 
 
@@ -1294,14 +1399,19 @@ class App:
         with open(Path.home() / "whisper_perf.log", "a", encoding="utf-8") as f:
             f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {text}\n")
 
-    def _send_paste_shortcut(self, target: str = "") -> bool:
+    def _send_paste_shortcut(self, target: str = "", text: str = "") -> bool:
         mode = PASTE_SHORTCUT_MODE
         modes = {
+            "ax": (("ax", lambda: ax_insert_text(text, target)),),
+            "keycode": (("osascript-keycode", lambda: cmd_v_osascript_keycode(target)),),
+            "osascript-keycode": (("osascript-keycode", lambda: cmd_v_osascript_keycode(target)),),
             "osascript": (("osascript", lambda: cmd_v_osascript(target)),),
             "pynput": (("pynput", cmd_v_pynput),),
             "session": (("session", lambda: self._send_cgevent(kCGSessionEventTap)),),
             "cgevent": (("cgevent", lambda: self._send_cgevent(kCGHIDEventTap)),),
             "auto": (
+                ("ax", lambda: ax_insert_text(text, target)),
+                ("osascript-keycode", lambda: cmd_v_osascript_keycode(target)),
                 ("osascript", lambda: cmd_v_osascript(target)),
                 ("pynput", cmd_v_pynput),
                 ("session", lambda: self._send_cgevent(kCGSessionEventTap)),
@@ -1309,11 +1419,11 @@ class App:
             ),
         }
         for name, sender in modes.get(mode, modes["auto"]):
-            if name != "osascript" and not request_accessibility_permission(prompt=False):
+            if name not in {"osascript", "osascript-keycode", "ax"} and not request_accessibility_permission(prompt=False):
                 log("Accessibility permission missing for simulated paste")
                 return False
             if sender():
-                log(f"Paste shortcut sent via {name}")
+                log(f"Paste sent via {name}")
                 return True
         return False
 
@@ -1328,11 +1438,6 @@ class App:
     def _temporarily_move_self_away(self) -> bool:
         logs_hidden = False
         try:
-            self.root.attributes("-topmost", False)
-            self.root.lower()
-        except Exception:
-            pass
-        try:
             if self._logs_win and self._logs_win.winfo_exists():
                 self._logs_win.withdraw()
                 logs_hidden = True
@@ -1344,6 +1449,8 @@ class App:
         def restore():
             try:
                 self.root.attributes("-topmost", True)
+                self.root.attributes("-alpha", 0.96)
+                self.root.lift()
             except Exception:
                 pass
             try:
@@ -1417,11 +1524,22 @@ class App:
                 log(f"Target activate failed: {target}")
         time.sleep(0.08)
         front = frontmost_bundle() or ""
+        paste_target = target
+        if front and not self._is_excluded_bundle(front):
+            if not paste_target or front != paste_target:
+                if paste_target:
+                    log(f"Paste target changed: saved={paste_target} actual={front}")
+                paste_target = front
+        if not paste_target and self._is_excluded_bundle(front):
+            log("Paste skipped after focus restore: no external target; text is in clipboard")
+            self._restore_after_paste(logs_hidden)
+            self._reset()
+            return
         log(
-            f"Paste target={target or '-'} frontmost={front or '-'} "
+            f"Paste target={paste_target or '-'} frontmost={front or '-'} "
             f"mode={PASTE_SHORTCUT_MODE or 'auto'}"
         )
-        if not self._send_paste_shortcut(target):
+        if not self._send_paste_shortcut(paste_target, text):
             self._open_privacy_panel("Accessibility")
         self._restore_after_paste(logs_hidden)
         self._reset()
