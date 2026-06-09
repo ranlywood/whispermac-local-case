@@ -279,6 +279,30 @@ static int configure_python_paths(const char *project_dir, const char *site_pack
     return 0;
 }
 
+static int set_sys_argv_from_args(int argc, char *argv[]) {
+    PyObject *py_argv = PyList_New(argc);
+    if (!py_argv) {
+        return report_python_error("cannot create sys.argv");
+    }
+
+    for (int i = 0; i < argc; i++) {
+        PyObject *item = PyUnicode_FromString(argv[i]);
+        if (!item) {
+            Py_DECREF(py_argv);
+            return report_python_error("cannot create sys.argv item");
+        }
+        PyList_SET_ITEM(py_argv, i, item);
+    }
+
+    if (PySys_SetObject("argv", py_argv) != 0) {
+        Py_DECREF(py_argv);
+        return report_python_error("cannot set sys.argv");
+    }
+
+    Py_DECREF(py_argv);
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     char project_dir[PATH_MAX];
     if (get_project_dir(project_dir, sizeof(project_dir)) != 0) {
@@ -305,6 +329,21 @@ int main(int argc, char *argv[]) {
     if (configure_python_paths(project_dir, venv_sp, script) != 0) {
         Py_Finalize();
         return 1;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "-c") == 0) {
+        if (argc < 3) {
+            fprintf(stderr, "WhisperMac: -c requires Python code\n");
+            Py_Finalize();
+            return 1;
+        }
+        if (set_sys_argv_from_args(argc - 1, argv + 1) != 0) {
+            Py_Finalize();
+            return 1;
+        }
+        int rc = PyRun_SimpleString(argv[2]);
+        Py_Finalize();
+        return rc == 0 ? 0 : 1;
     }
 
     if (resolve_strict_local_mode() != 0) {

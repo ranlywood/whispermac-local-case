@@ -558,6 +558,11 @@ class App:
         # ── Окно ────────────────────────────────────────────────
         self.root = tk.Tk()
         self.root.overrideredirect(True)
+        self.root.protocol("WM_DELETE_WINDOW", self._quit)
+        try:
+            self.root.createcommand("tk::mac::Quit", self._quit)
+        except tk.TclError:
+            pass
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", 0.96)
         self.root.configure(bg=BG)
@@ -603,8 +608,7 @@ class App:
         self._draw_logs_button()
 
         # ── Биндинги ────────────────────────────────────────────
-        self.cv.tag_bind("close", "<Button-1>",
-                         lambda e: self.root.destroy())
+        self.cv.tag_bind("close", "<Button-1>", self._quit)
         self.cv.tag_bind("close", "<Enter>",
                          lambda e: self.cv.itemconfig(self._close_bg,
                                                       fill=C_CLOSE_HV))
@@ -672,6 +676,30 @@ class App:
                     self._keyboard_listener.stop()
             except Exception:
                 pass
+
+    def _quit(self, _event=None):
+        self.recording = False
+        self.processing = False
+        try:
+            if self.stream:
+                self.stream.stop()
+                self.stream.close()
+                self.stream = None
+        except Exception as ex:
+            log(f"Stream close during quit failed: {ex}")
+        try:
+            if self._keyboard_listener:
+                self._keyboard_listener.stop()
+        except Exception as ex:
+            log(f"Keyboard listener stop during quit failed: {ex}")
+        self._close_logs_window()
+        try:
+            self.root.quit()
+            self.root.destroy()
+        except Exception:
+            pass
+        os._exit(0)
+        return "break"
 
     def _is_hold_key(self, key) -> bool:
         if self._hold_key_mode != "right_option" or self._keyboard_mod is None:
