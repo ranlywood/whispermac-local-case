@@ -12,6 +12,8 @@ import sys
 import atexit
 from pathlib import Path
 import fcntl
+import io
+import wave
 
 import numpy as np
 import sounddevice as sd
@@ -93,6 +95,99 @@ SILENCE_SKIP_MAX_CHARS = int(max(8, _env_float("WHISPERMAC_SILENCE_SKIP_MAX_CHAR
 FINAL_TEMPERATURES = (0.0, 0.2, 0.4, 0.6)
 HOTWORDS_PROMPT = "WhisperMac, Whisper Flow, Miro, Zoom, Claude Code, ChatGPT."
 PASTE_SHORTCUT_MODE = os.getenv("WHISPERMAC_PASTE_SHORTCUT_MODE", "auto").strip().lower()
+
+# ── Движок транскрипции ─────────────────────────────
+# ENGINE=groq (по умолчанию) — быстрый облачный путь через Groq API,
+# локальный mlx-whisper остаётся фоллбэком при ошибке/отсутствии сети/ключа.
+# ENGINE=local — только локальная модель (как раньше).
+ENGINE       = os.getenv("WHISPERMAC_ENGINE", "groq").strip().lower()
+GROQ_MODEL   = os.getenv("WHISPERMAC_GROQ_MODEL", "whisper-large-v3-turbo")
+GROQ_TIMEOUT = max(3.0, _env_float("WHISPERMAC_GROQ_TIMEOUT", 20.0))
+GROQ_API_URL = os.getenv(
+    "WHISPERMAC_GROQ_URL",
+    "https://api.groq.com/openai/v1/audio/transcriptions",
+)
+# strict_local относится только к загрузке ЛОКАЛЬНОЙ модели (offline от HuggingFace)
+# и НЕ отключает Groq. Чтобы работать полностью локально — задай WHISPERMAC_ENGINE=local.
+
+
+def _load_groq_key() -> str:
+    """Ключ Groq: сначала env, затем локальный файл вне репозитория."""
+    key = os.getenv("GROQ_API_KEY", "").strip()
+    if key:
+        return key
+    for path in (Path.home() / ".whispermac_groq_key",
+                 Path.home() / ".config" / "whispermac" / "groq_key"):
+        try:
+            if path.exists():
+                return path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+    return ""
+
+
+GROQ_API_KEY = _load_groq_key()
+
+
+def _audio_to_wav_bytes(audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> bytes:
+    """float32 [-1..1] → 16-bit PCM WAV в памяти (для отправки в Groq)."""
+    clipped = np.clip(audio.astype(np.float32), -1.0, 1.0)
+    pcm16 = (clipped * 32767.0).astype("<i2")
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm16.tobytes())
+    return buf.getvalue()
+
+
+def groq_transcribe(audio: np.ndarray, *, prompt: str = "", api_key: str = "") -> str:
+    """
+    Одним запросом отправляет всю запись в Groq и возвращает текст.
+    При любой ошибке возвращает "" — вызывающий код падает на локальный фоллбэк.
+    """
+    key = api_key or GROQ_API_KEY
+    if not key:
+        log("[groq] ключ не найден — фоллбэк на локальную модель")
+        return ""
+    try:
+        import requests  # ленивый импорт: локальный режим не требует requests
+    except Exception as ex:  # noqa: BLE001
+        log(f"[groq] requests недоступен ({ex}) — фоллбэк")
+        return ""
+    try:
+        wav = _audio_to_wav_bytes(audio)
+        files = {"file": ("audio.wav", wav, "audio/wav")}
+        data = {
+            "model": GROQ_MODEL,
+            "language": LANGUAGE,
+            "response_format": "json",
+            "temperature": "0",
+        }
+        if prompt:
+            data["prompt"] = prompt
+        started = time.perf_counter()
+        resp = requests.post(
+            GROQ_API_URL,
+            headers={"Authorization": f"Bearer {key}"},
+            files=files,
+            data=data,
+            timeout=GROQ_TIMEOUT,
+        )
+        elapsed = time.perf_counter() - started
+        if resp.status_code != 200:
+            log(f"[groq] HTTP {resp.status_code}: {resp.text[:160]} — фоллбэк")
+            return ""
+        text = (resp.json().get("text") or "").strip()
+        audio_sec = len(audio) / SAMPLE_RATE
+        log(f"[groq] {audio_sec:.1f}s аудио → {elapsed:.2f}s: {text}")
+        return text
+    except Exception as ex:  # noqa: BLE001
+        log(f"[groq] ошибка запроса ({ex}) — фоллбэк на локальную модель")
+        return ""
+
+
 # ═══════════════════════════════════════════════════
 
 W, H   = 228, 52
@@ -1139,7 +1234,10 @@ class App:
                 self._open_privacy_panel("Microphone")
             self._reset()
             return
-        threading.Thread(target=self._streaming_worker, daemon=True).start()
+        if ENGINE == "groq" and GROQ_API_KEY:
+            threading.Thread(target=self._groq_worker, daemon=True).start()
+        else:
+            threading.Thread(target=self._streaming_worker, daemon=True).start()
 
     def _stop_rec(self):
         self.recording = False
@@ -1248,6 +1346,73 @@ class App:
         if text:
             log(f"[{label}] {text}")
         return text, elapsed, avg_logprob, avg_no_speech
+
+    # ── Groq воркер (основной путь) ─────────────────────────────
+    def _groq_worker(self):
+        """
+        Быстрый облачный путь: во время записи только копим аудио,
+        на стопе одним запросом отправляем всё в Groq и мгновенно вставляем.
+        При ошибке/пустом ответе — фоллбэк на локальную модель.
+        """
+        while self.recording:
+            time.sleep(WORKER_POLL_SEC)
+
+        with self._chunks_lock:
+            all_audio = (
+                np.concatenate([c.flatten() for c in self.chunks])
+                if self.chunks else np.array([], dtype=np.float32)
+            )
+
+        audio_sec = len(all_audio) / SAMPLE_RATE
+        amp = float(np.max(np.abs(all_audio))) if len(all_audio) else 0.0
+        if audio_sec < MIN_DURATION or amp <= 0.001:
+            log("[groq] слишком короткая/тихая запись — пропуск")
+            self.root.after(0, self._reset)
+            return
+
+        full = groq_transcribe(all_audio, prompt=HOTWORDS_PROMPT)
+
+        if not full:
+            log("[groq] пустой результат — фоллбэк на локальную модель")
+            full = self._local_full_transcribe(all_audio)
+
+        if full and _is_repetition_loop(full):
+            collapsed = _collapse_repetition_loop(full).strip()
+            if collapsed and collapsed != full:
+                log("[post] схлопнул повторяющийся loop-текст")
+                full = collapsed
+
+        log(f"→ {full}")
+        if full:
+            self._save(full)
+            self.root.after(0, lambda t=full: self._paste_and_reset(t))
+        else:
+            self.root.after(0, self._reset)
+
+    def _local_full_transcribe(self, all_audio: np.ndarray) -> str:
+        """Локальный фоллбэк: единый проход mlx-whisper по всей записи."""
+        if not len(all_audio):
+            return ""
+        try:
+            res = self._transcribe_audio(
+                all_audio,
+                prompt=HOTWORDS_PROMPT,
+                final=True,
+                condition_on_previous_text=False,
+            )
+            text = res.get("text", "").strip()
+            if text and _is_repetition_loop(text):
+                safe = self._transcribe_audio(
+                    all_audio, prompt=None, final=False,
+                    condition_on_previous_text=False, temperature=0.0,
+                )
+                safe_text = safe.get("text", "").strip()
+                if safe_text and not _is_repetition_loop(safe_text):
+                    text = safe_text
+            return text
+        except Exception as ex:  # noqa: BLE001
+            log(f"[local-fallback] ошибка: {ex}")
+            return ""
 
     # ── Streaming воркер ────────────────────────────────────────
     def _streaming_worker(self):
@@ -1634,6 +1799,13 @@ class App:
         self.root.after(300, self._track_app)
 
     def _load_model(self):
+        if ENGINE == "groq" and GROQ_API_KEY:
+            log(f"Движок: Groq ({GROQ_MODEL}), локальная модель — фоллбэк")
+            log("Готово")
+            self.root.after(0, self._on_ready)
+            return
+        if ENGINE == "groq" and not GROQ_API_KEY:
+            log("[groq] ключ не найден — работаю только на локальной модели")
         log("Загружаю модель...")
         log(f"Model: {MODEL_REPO}")
         if STRICT_LOCAL_MODE:
