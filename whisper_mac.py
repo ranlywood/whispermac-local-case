@@ -14,6 +14,8 @@ from pathlib import Path
 import fcntl
 import io
 import wave
+import shutil
+import tempfile
 
 import numpy as np
 import sounddevice as sd
@@ -102,7 +104,8 @@ PASTE_SHORTCUT_MODE = os.getenv("WHISPERMAC_PASTE_SHORTCUT_MODE", "auto").strip(
 # ENGINE=local — только локальная модель (как раньше).
 ENGINE       = os.getenv("WHISPERMAC_ENGINE", "groq").strip().lower()
 GROQ_MODEL   = os.getenv("WHISPERMAC_GROQ_MODEL", "whisper-large-v3-turbo")
-GROQ_TIMEOUT = max(3.0, _env_float("WHISPERMAC_GROQ_TIMEOUT", 20.0))
+GROQ_TIMEOUT = max(3.0, _env_float("WHISPERMAC_GROQ_TIMEOUT", 120.0))
+GROQ_CONNECT_TIMEOUT = max(3.0, _env_float("WHISPERMAC_GROQ_CONNECT_TIMEOUT", 10.0))
 GROQ_API_URL = os.getenv(
     "WHISPERMAC_GROQ_URL",
     "https://api.groq.com/openai/v1/audio/transcriptions",
@@ -142,6 +145,35 @@ def _audio_to_wav_bytes(audio: np.ndarray, sample_rate: int = SAMPLE_RATE) -> by
     return buf.getvalue()
 
 
+def _encode_for_groq(audio: np.ndarray) -> tuple:
+    """
+    Готовит payload для Groq. Длинные записи в несжатом WAV грузятся долго
+    и упираются в таймаут, поэтому сжимаем речь в AAC/m4a нативным afconvert
+    (всегда есть в macOS): ~6 МБ WAV → ~1 МБ. При любой ошибке — обычный WAV.
+    Возвращает (filename, bytes, mime).
+    """
+    wav = _audio_to_wav_bytes(audio)
+    afconvert = shutil.which("afconvert")
+    if not afconvert:
+        return "audio.wav", wav, "audio/wav"
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "in.wav"
+            dst = Path(td) / "out.m4a"
+            src.write_bytes(wav)
+            proc = subprocess.run(
+                [afconvert, "-f", "m4af", "-d", "aac", "-b", "48000",
+                 str(src), str(dst)],
+                capture_output=True, timeout=30,
+            )
+            if proc.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
+                return "audio.m4a", dst.read_bytes(), "audio/mp4"
+            log(f"[groq] afconvert rc={proc.returncode} — шлю WAV")
+    except Exception as ex:  # noqa: BLE001
+        log(f"[groq] сжатие не удалось ({ex}) — шлю WAV")
+    return "audio.wav", wav, "audio/wav"
+
+
 def groq_transcribe(audio: np.ndarray, *, prompt: str = "", api_key: str = "") -> str:
     """
     Одним запросом отправляет всю запись в Groq и возвращает текст.
@@ -157,8 +189,8 @@ def groq_transcribe(audio: np.ndarray, *, prompt: str = "", api_key: str = "") -
         log(f"[groq] requests недоступен ({ex}) — фоллбэк")
         return ""
     try:
-        wav = _audio_to_wav_bytes(audio)
-        files = {"file": ("audio.wav", wav, "audio/wav")}
+        fname, payload, mime = _encode_for_groq(audio)
+        files = {"file": (fname, payload, mime)}
         data = {
             "model": GROQ_MODEL,
             "language": LANGUAGE,
@@ -173,7 +205,7 @@ def groq_transcribe(audio: np.ndarray, *, prompt: str = "", api_key: str = "") -
             headers={"Authorization": f"Bearer {key}"},
             files=files,
             data=data,
-            timeout=GROQ_TIMEOUT,
+            timeout=(GROQ_CONNECT_TIMEOUT, GROQ_TIMEOUT),
         )
         elapsed = time.perf_counter() - started
         if resp.status_code != 200:
@@ -181,7 +213,8 @@ def groq_transcribe(audio: np.ndarray, *, prompt: str = "", api_key: str = "") -
             return ""
         text = (resp.json().get("text") or "").strip()
         audio_sec = len(audio) / SAMPLE_RATE
-        log(f"[groq] {audio_sec:.1f}s аудио → {elapsed:.2f}s: {text}")
+        kb = len(payload) / 1024
+        log(f"[groq] {audio_sec:.1f}s аудио ({fname}, {kb:.0f}КБ) → {elapsed:.2f}s: {text}")
         return text
     except Exception as ex:  # noqa: BLE001
         log(f"[groq] ошибка запроса ({ex}) — фоллбэк на локальную модель")
