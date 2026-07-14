@@ -1662,14 +1662,10 @@ class App:
             return False
 
     def _temporarily_move_self_away(self) -> bool:
-        logs_hidden = False
-        try:
-            if self._logs_win and self._logs_win.winfo_exists():
-                self._logs_win.withdraw()
-                logs_hidden = True
-        except Exception:
-            pass
-        return logs_hidden
+        # Лог-архив во время вставки НЕ трогаем. Раньше он сворачивался, а затем
+        # разворачивался обратно — из-за чего всплывал поверх после каждой вставки.
+        # Оставляем его как есть (в фоне): фокус получает целевое приложение.
+        return False
 
     def _restore_after_paste(self, logs_hidden: bool):
         def restore():
