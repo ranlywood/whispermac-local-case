@@ -277,6 +277,60 @@ def log(msg):
         pass
 
 
+_PYNPUT_TSM_PATCHED = False
+
+
+def _patch_pynput_darwin_tsm_crash():
+    """Чинит краш WhisperMac на свежих macOS.
+
+    Глобальный слушатель pynput на каждый клавишный ивент зовёт
+    CGEventKeyboardGetUnicodeString (перевод клавиши в символ), а та лезет в
+    Text Services Manager за текущей раскладкой. На новых macOS этот вызов
+    из фонового потока слушателя ловит main-thread-ассерт libdispatch ->
+    SIGTRAP, и приложение падает при любом наборе текста.
+
+    WhisperMac нужен только модификатор (правый option, vk 61), символ не
+    нужен. Поэтому подменяем _event_to_key на версию без перевода в Unicode:
+    спец-клавиши берём из таблицы pynput, всё остальное отдаём как vk. TSM
+    больше не дёргается -> краша нет, распознавание hold-key не меняется.
+    """
+    global _PYNPUT_TSM_PATCHED
+    if _PYNPUT_TSM_PATCHED:
+        return
+    try:
+        import contextlib
+        from pynput.keyboard import _darwin as d
+        from pynput.keyboard import KeyCode
+
+        # (1) На каждый клавишный ивент — без перевода в символ (не зовём TSM).
+        def _event_to_key_no_tsm(self, event):
+            vk = d.CGEventGetIntegerValueField(event, d.kCGKeyboardEventKeycode)
+            event_type = d.CGEventGetType(event)
+            is_media = True if event_type == d.NSSystemDefined else None
+            key = (vk, is_media)
+            if key in self._SPECIAL_KEYS:
+                return self._SPECIAL_KEYS[key]
+            return KeyCode.from_vk(vk)
+
+        d.Listener._event_to_key = _event_to_key_no_tsm
+
+        # (2) При старте потока-слушателя pynput грузит раскладку через
+        #     TISCopyCurrentKeyboardInputSource/TISGetInputSourceProperty
+        #     (keycode_context) — это и есть TSM-вызов на фоновом потоке,
+        #     который валит приложение ЕЩЁ ДО ввода. Раскладка нам не нужна
+        #     (см. пункт 1), поэтому отдаём пустой контекст без обращения к TSM.
+        @contextlib.contextmanager
+        def _keycode_context_no_tsm():
+            yield (None, None)
+
+        d.keycode_context = _keycode_context_no_tsm
+
+        _PYNPUT_TSM_PATCHED = True
+        log("pynput TSM-фикс применён (перевод клавиш и загрузка раскладки отключены)")
+    except Exception as ex:
+        log(f"pynput TSM-фикс не применён: {ex}")
+
+
 def acquire_instance_lock():
     lock_file = Path(INSTANCE_LOCK_PATH).expanduser()
     lock_file.parent.mkdir(parents=True, exist_ok=True)
@@ -788,6 +842,7 @@ class App:
             return
 
         self._keyboard_mod = keyboard
+        _patch_pynput_darwin_tsm_crash()
         self._keyboard_listener = keyboard.Listener(
             on_press=self._on_global_key_press,
             on_release=self._on_global_key_release,

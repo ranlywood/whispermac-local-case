@@ -28,3 +28,7 @@ dist/
 *.dSYM/
 WhisperMac.app/
 
+
+# Local backups
+*.bak
+*.bak-*
